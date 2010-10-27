@@ -1,0 +1,6 @@
+sshuttle (0.42-1) unstable; urgency=low
+
+  * Initial release (Closes: 601626)
+  * Write manpage for the Debian release
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Wed, 27 Oct 2010 02:50:49 +0200

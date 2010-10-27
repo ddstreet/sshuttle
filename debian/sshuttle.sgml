@@ -1,0 +1,235 @@
+<!doctype refentry PUBLIC "-//OASIS//DTD DocBook V4.1//EN" [
+
+<!-- Process this file with docbook-to-man to generate an nroff manual
+     page: `docbook-to-man manpage.sgml > manpage.1'.  You may view
+     the manual page with: `docbook-to-man manpage.sgml | nroff -man |
+     less'.  A typical entry in a Makefile or Makefile.am is:
+
+manpage.1: manpage.sgml
+	docbook-to-man $< > $@
+
+
+	The docbook-to-man binary is found in the docbook-to-man package.
+	Please remember that if you create the nroff version in one of the
+	debian/rules file targets (such as build), you will need to include
+	docbook-to-man in your Build-Depends control field.
+
+  -->
+
+  <!ENTITY dhfirstname "<firstname>Javier</firstname>">
+  <!ENTITY dhsurname   "<surname>Fernandez-Sanguino</surname>">
+  <!ENTITY dhdate      "<date>October 27, 2010</date>">
+  <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
+       allowed: see man(7), man(1). -->
+  <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
+  <!ENTITY dhemail     "<email>jfs@debian.org</email>">
+  <!ENTITY dhusername  "Javier Fernandez-Sanguino Pen~a">
+  <!ENTITY dhucpackage "<refentrytitle>SSHUTTLE</refentrytitle>">
+  <!ENTITY dhpackage   "sshuttle">
+
+  <!ENTITY debian      "<productname>Debian</productname>">
+  <!ENTITY gnu         "<acronym>GNU</acronym>">
+  <!ENTITY gpl         "&gnu; <acronym>GPL</acronym>">
+]>
+
+<refentry>
+  <refentryinfo>
+    <address>
+      &dhemail;
+    </address>
+    <author>
+      &dhfirstname;
+      &dhsurname;
+    </author>
+    <copyright>
+      <year>2010</year>
+      <holder>&dhusername;</holder>
+    </copyright>
+    &dhdate;
+  </refentryinfo>
+  <refmeta>
+    &dhucpackage;
+
+    &dhsection;
+  </refmeta>
+  <refnamediv>
+    <refname>&dhpackage;</refname>
+
+    <refpurpose>create a transparent proxy to remotely acces other networks</refpurpose>
+  </refnamediv>
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>&dhpackage;</command>
+
+      <arg><option>-l <replaceable>ip:</replaceable><replaceable>port</replaceable></option></arg>
+
+      <arg><option>-r <replaceable>username@sshserver:port</replaceable></option></arg>
+
+
+
+    </cmdsynopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>DESCRIPTION</title>
+
+    <para>This manual page documents briefly the
+      <command>&dhpackage;</command> and <command>bar</command>
+      commands.</para>
+
+    <para>This manual page was written for the &debian; distribution
+      because the original program does not have a manual page.</para>
+
+    <para><command>&dhpackage;</command> is a program that
+    can be used to setup a transparent proxy server to connect
+    two networks by using a remote server you have an SSH account in
+    that is located in the remote network. In a sense, it acts like
+    a VPN connnection since all the traffic is transparently
+    forwarded between hosts in both networks.</para>
+
+    <para>Any TCP session initiated to one of the proxied IP addresses will be
+captured by <command>&dhpackage;</command> and sent over an ssh session to the
+remote copy of <command>&dhpackage;</command>, which will then regenerate the
+connection on that end, and funnel the data back and forth through ssh.
+    </para>
+
+    <para>For <command>&dhpackage;</command> to work, the user has to
+    be root in the system that starts up the VPN connection. On the
+    other hand, <command>&dhpackage;</command> does not need to be installed in
+    the remote server, as the initial invocation will make it copy over to it.
+    However, a <command>python</command> interpreter needs to be available there.
+    It does not require any administrative privileges in the remote machine, and
+    works even if TCP forwarding is disabled in the remote host.</para>
+
+  </refsect1>
+  <refsect1>
+    <title>OPTIONS</title>
+
+    <para>These programs follow the usual &gnu; command line syntax,
+      with long options starting with two dashes (`-').  A summary of
+      options is included below.  For a complete description, see the
+      <application>Info</application> files.</para>
+
+    <variablelist>
+      <varlistentry>
+        <term><option>-l</option>
+          <option>--listen</option>
+        </term>
+        <listitem>
+          <para>Transparent proxy to the IP address and port number provided.
+By default uses 0.0.0.0:0 (any IP address and any port).</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><option>-H</option>
+          <option>--auto-hosts</option>
+        </term>
+        <listitem>
+          <para>Scan for remote hostnames and update local /etc/hosts.</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><option>-N</option>
+          <option>--auto-nets</option>
+        </term>
+        <listitem>
+          <para>Automatically determine subnets to route.</para>
+        </listitem>
+      </varlistentry>
+    
+      <varlistentry>
+        <term><option>--python</option>
+        </term>
+        <listitem>
+          <para>Specify the name/path of the python interpreter on the remote
+server (by default: python).</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><option>-r</option>
+        <option>--remote</option>
+        </term>
+        <listitem>
+          <para>Define the SSH hostname (and optionally, the username too) of the remote sshuttle server.</para>
+        </listitem>
+      </varlistentry>
+    
+      <varlistentry>
+        <term><option>-x</option>
+        <option>--exclude</option>
+        </term>
+        <listitem>
+          <para>Exclude the subnet from the forwarding (can be used more than once).</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><option>-v</option>
+        <option>--verbose</option>
+        </term>
+        <listitem>
+          <para>Increase debug message verbosity.</para>
+        </listitem>
+      </varlistentry>
+    
+      <varlistentry>
+        <term><option>--seed-hosts</option>
+        </term>
+        <listitem>
+          <para>When used together with -H, use these hostnames for the initial
+scan. The list of hosts has to be comma-separated.</para>
+        </listitem>
+      </varlistentry>
+    
+      <varlistentry>
+        <term><option>--noserver</option>
+        </term>
+        <listitem>
+          <para>Do not use a separate server process. Used mostly for debugging.</para>
+        </listitem>
+      </varlistentry>
+
+    </variablelist>
+  </refsect1>
+  <refsect1>
+    <title>SEE ALSO</title>
+
+    <para>ssh (1)</para>
+
+    <para>The documentation avialable at /usr/share/doc/&dhpackage; or the
+online documentation available at http://github.com/apenwarr/sshuttle.</para>
+
+
+  </refsect1>
+  <refsect1>
+    <title>AUTHOR</title>
+
+    <para>This manual page was written by &dhusername; &dhemail; for
+      the &debian; system (and may be used by others).  Permission is
+      granted to copy, distribute and/or modify this document under
+      the terms of the &gnu; General Public License, Version 2 or any
+      later version published by the Free Software Foundation.
+    </para>
+    <para>
+      On Debian systems, the complete text of the GNU General Public
+      License can be found in /usr/share/common-licenses/GPL-2.
+    </para>
+
+  </refsect1>
+</refentry>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:t
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:2
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:nil
+sgml-exposed-tags:nil
+sgml-local-catalogs:nil
+sgml-local-ecat-files:nil
+End:
+-->

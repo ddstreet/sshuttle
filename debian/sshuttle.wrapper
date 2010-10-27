@@ -1,0 +1,5 @@
+#!/bin/sh
+# Simple wrapper for sshuttle python program
+
+cd /usr/lib/sshuttle/
+exec python main.py $*

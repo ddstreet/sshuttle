@@ -1,0 +1,53 @@
+Description: Upstream changes introduced in version 0.42-1
+ This patch has been created by dpkg-source during the package build.
+ Here's the last changelog entry, hopefully it gives details on why
+ those changes were made:
+ .
+ sshuttle (0.42-1) unstable; urgency=low
+ .
+   * Initial release (Closes: 601626)
+   * Write manpage for the Debian release
+ .
+ The person named in the Author field signed this changelog entry.
+Author: Javier Fernandez-Sanguino Pen~a <jfs@debian.org>
+Bug-Debian: http://bugs.debian.org/601626
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: http://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: <YYYY-MM-DD>
+
+--- /dev/null
++++ sshuttle-0.42/Makefile
+@@ -0,0 +1,23 @@
++#
++# Makefile for sshuttle
++
++SSHUTTLE_DIR=/usr/lib/sshuttle
++BIN_DIR=/usr/sbin/
++
++SSHUTTLE_MAIN=main.py
++SSHUTTLE_SCRIPTS=assembler.py firewall.py hostwatch.py options.py ssh.py \
++	client.py helpers.py server.py ssnet.py
++
++# Do nothing to build the package
++all:
++
++install: install-compat
++	[ -d "$(PREFIX)$(SSHUTTLE_DIR)" ] || mkdir -p $(PREFIX)$(SSHUTTLE_DIR)
++	install -m755 $(SSHUTTLE_MAIN) $(PREFIX)$(SSHUTTLE_DIR)
++	install -m644 $(SSHUTTLE_SCRIPTS) $(PREFIX)$(SSHUTTLE_DIR)
++	[ -d "$(PREFIX)$(BIN_DIR)" ] || mkdir -p $(PREFIX)$(BIN_DIR)
++	( cd  $(PREFIX)$(BIN_DIR) && ln -s $(SSHUTTLE_DIR)/$(SSHUTTLE_MAIN) sshuttle )
++
++install-compat:
++	[ -d "$(PREFIX)$(SSHUTTLE_DIR)/compat" ] || mkdir -p $(PREFIX)$(SSHUTTLE_DIR)/compat
++	install -m644 compat/*.py $(PREFIX)$(SSHUTTLE_DIR)/compat

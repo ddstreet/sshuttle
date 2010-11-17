@@ -1,3 +1,12 @@
+sshuttle (0.42-2) unstable; urgency=low
+
+  * Update to upstream's latest version
+  * Include pandoc in Build-Depends as it is now required to build
+    the manpage
+  * Install upstream's manpage instead of our own.
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Wed, 17 Nov 2010 01:32:22 +0100
+
 sshuttle (0.42-1) unstable; urgency=low
 
   * Initial release (Closes: 601626)

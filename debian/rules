@@ -8,11 +8,11 @@
 %:
 	dh $@ 
 
-override_dh_auto_clean:
-	rm -f debian/sshuttle.8
-
-override_dh_auto_build:
-	docbook-to-man debian/sshuttle.sgml > debian/sshuttle.8
+#override_dh_auto_clean:
+#	rm -f debian/sshuttle.8
+#
+#override_dh_auto_build:
+#	docbook-to-man debian/sshuttle.sgml > debian/sshuttle.8
 
 override_dh_auto_install:
 	PREFIX=debian/sshuttle $(MAKE) install

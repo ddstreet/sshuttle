@@ -1,0 +1,489 @@
+Description: Upstream changes introduced in version 0.42-2
+ This patch has been created by dpkg-source during the package build.
+ Here's the last changelog entry, hopefully it gives details on why
+ those changes were made:
+ .
+ sshuttle (0.42-2) unstable; urgency=low
+ .
+   * Update to upstream's latest version
+   * Include pandoc in Build-Depends as it is now required to build
+     the manpage
+   * Install upstream's manpage instead of our own.
+ .
+ The person named in the Author field signed this changelog entry.
+Author: Javier Fernandez-Sanguino Pen~a <jfs@debian.org>
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: http://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: <YYYY-MM-DD>
+
+--- sshuttle-0.42.orig/main.py
++++ sshuttle-0.42/main.py
+@@ -56,8 +56,8 @@ python= specify the name/path of the pyt
+ r,remote=  ssh hostname (and optional username) of remote sshuttle server
+ x,exclude= exclude this subnet (can be used more than once)
+ v,verbose  increase debug message verbosity
++e,ssh-cmd= the command to use to connect to the remote [ssh]
+ seed-hosts= with -H, use these hostnames for initial scan (comma-separated)
+-noserver   don't use a separate server process (mostly for debugging)
+ server     (internal use only)
+ firewall   (internal use only)
+ hostwatch  (internal use only)
+@@ -98,9 +98,9 @@ try:
+         else:
+             sh = None
+         sys.exit(client.main(parse_ipport(opt.listen or '0.0.0.0:0'),
+-                             not opt.noserver,
++                             opt.ssh_cmd,
+                              remotename,
+-                             (opt.python or "python"),
++                             opt.python,
+                              sh,
+                              opt.auto_nets,
+                              parse_subnets(includes),
+--- sshuttle-0.42.orig/Makefile
++++ sshuttle-0.42/Makefile
+@@ -1,3 +1,13 @@
++#
++# Makefile for sshuttle
++
++SSHUTTLE_DIR=/usr/lib/sshuttle
++BIN_DIR=/usr/sbin/
++
++SSHUTTLE_MAIN=main.py
++SSHUTTLE_SCRIPTS=assembler.py firewall.py hostwatch.py options.py ssh.py \
++	client.py helpers.py server.py ssnet.py
++
+ PANDOC:=$(shell \
+ 	if pandoc </dev/null 2>/dev/null; then \
+ 		echo pandoc; \
+@@ -16,5 +26,16 @@ sshuttle.8: sshuttle.md
+ 
+ all: sshuttle.8
+ 
++install: install-compat
++	[ -d "$(PREFIX)$(SSHUTTLE_DIR)" ] || mkdir -p $(PREFIX)$(SSHUTTLE_DIR)
++	install -m755 $(SSHUTTLE_MAIN) $(PREFIX)$(SSHUTTLE_DIR)
++	install -m644 $(SSHUTTLE_SCRIPTS) $(PREFIX)$(SSHUTTLE_DIR)
++	[ -d "$(PREFIX)$(BIN_DIR)" ] || mkdir -p $(PREFIX)$(BIN_DIR)
++	( cd  $(PREFIX)$(BIN_DIR) && ln -s $(SSHUTTLE_DIR)/$(SSHUTTLE_MAIN) sshuttle )
++
++install-compat:
++	[ -d "$(PREFIX)$(SSHUTTLE_DIR)/compat" ] || mkdir -p $(PREFIX)$(SSHUTTLE_DIR)/compat
++	install -m644 compat/*.py $(PREFIX)$(SSHUTTLE_DIR)/compat
++
+ clean:
+ 	rm -f *~ */*~ .*~ */.*~ *.8 *.tmp */*.tmp *.pyc */*.pyc
+--- /dev/null
++++ sshuttle-0.42/sshuttle.md
+@@ -0,0 +1,223 @@
++% sshuttle(8) Sshuttle 0.42
++% Avery Pennarun <apenwarr@gmail.com>
++% 2010-11-09
++
++# NAME
++
++sshuttle - a transparent proxy-based VPN using ssh
++
++# SYNOPSIS
++
++sshuttle [options...] [-r [username@]sshserver[:port]] \<subnets...\>
++
++
++# DESCRIPTION
++
++sshuttle allows you to create a VPN connection from your
++machine to any remote server that you can connect to via
++ssh, as long as that server has python 2.3 or higher.
++
++To work, you must have root access on the local machine,
++but you can have a normal account on the server.
++
++It's valid to run sshuttle more than once simultaneously on
++a single client machine, connecting to a different server
++every time, so you can be on more than one VPN at once.
++
++If run on a router, sshuttle can forward traffic for your
++entire subnet to the VPN.
++
++
++# OPTIONS
++
++\<subnets...\>
++:   a list of subnets to route over the VPN, in the form
++    `a.b.c.d[/width]`.  Valid examples are 1.2.3.4 (a
++    single IP address), 1.2.3.4/32 (equivalent to 1.2.3.4),
++    1.2.3.0/24 (a 24-bit subnet, ie. with a 255.255.255.0
++    netmask), and 0/0 ('just route everything through the
++    VPN').
++
++-l, --listen=*[ip:]port*
++:   use this ip address and port number as the transparent
++    proxy port.  By default sshuttle finds an available
++    port automatically, so you don't need to override it.
++
++-H, --auto-hosts
++:   scan for remote hostnames and update the local /etc/hosts
++    file with matching entries for as long as the VPN is
++    open.  This is nicer than changing your system's DNS
++    (/etc/resolv.conf) settings, for several reasons.  First,
++    hostnames are added without domain names attached, so
++    you can `ssh thatserver` without worrying if your local
++    domain matches the remote one.  Second, if you sshuttle
++    into more than one VPN at a time, it's impossible to
++    use more than one DNS server at once anyway, but
++    sshuttle correctly merges /etc/hosts entries between
++    all running copies.  Third, if you're only routing a
++    few subnets over the VPN, you probably would prefer to
++    keep using your local DNS server for everything else.
++    
++-N, --auto-nets
++:   in addition to the subnets provided on the command
++    line, ask the server which subnets it thinks we should
++    route, and route those automatically.  The suggestions
++    are taken automatically from the server's routing
++    table.
++    
++--python
++:   specify the name/path of the remote python interpreter. 
++    The default is just `python`, which means to use the
++    default python interpreter on the remote system's PATH.
++
++-r, --remote=*[username@]sshserver[:port]*
++:   the remote hostname and optional username and ssh
++    port number to use for connecting to the remote server. 
++    For example, example.com, testuser@example.com,
++    testuser@example.com:2222, or example.com:2244.
++
++-x, --exclude=*subnet*
++:   explicitly exclude this subnet from forwarding.  The
++    format of this option is the same as the `<subnets>`
++    option.  To exclude more than one subnet, specify the
++    `-x` option more than once.  You can say something like
++    `0/0 -x 1.2.3.0/24` to forward everything except the
++    local subnet over the VPN, for example.
++
++-v, --verbose
++:   print more information about the session.  This option
++    can be used more than once for increased verbosity.  By
++    default, sshuttle prints only error messages.
++    
++-e, --ssh-cmd
++:   the command to use to connect to the remote server. The
++    default is just `ssh`.  Use this if your ssh client is
++    in a non-standard location or you want to provide extra
++    options to the ssh command, for example, `-e 'ssh -v'`.
++
++--seed-hosts
++:   a comma-separated list of hostnames to use to
++    initialize the `--auto-hosts` scan algorithm. 
++    `--auto-hosts` does things like poll local SMB servers
++    for lists of local hostnames, but can speed things up
++    if you use this option to give it a few names to start
++    from.
++
++--server
++:   (internal use only) run the sshuttle server on
++    stdin/stdout.  This is what the client runs on
++    the remote end.
++
++--firewall
++:   (internal use only) run the firewall manager.  This is
++    the only part of sshuttle that must run as root.  If
++    you start sshuttle as a non-root user, it will
++    automatically run `sudo` or `su` to start the firewall
++    manager, but the core of sshuttle still runs as a
++    normal user.
++    
++--hostwatch
++:   (internal use only) run the hostwatch daemon.  This
++    process runs on the server side and collects hostnames for
++    the `--auto-hosts` option.  Using this option by itself
++    makes it a lot easier to debug and test the `--auto-hosts`
++    feature.
++
++
++# EXAMPLES
++
++Test locally by proxying all local connections, without using ssh:
++
++    $ sshuttle -v 0/0
++
++    Starting sshuttle proxy.
++    Listening on ('0.0.0.0', 12300).
++    [local sudo] Password: 
++    firewall manager ready.
++    c : connecting to server...
++     s: available routes:
++     s:   192.168.42.0/24
++    c : connected.
++    firewall manager: starting transproxy.
++    c : Accept: '192.168.42.106':50035 -> '192.168.42.121':139.
++    c : Accept: '192.168.42.121':47523 -> '77.141.99.22':443.
++        ...etc...
++    ^C
++    firewall manager: undoing changes.
++    KeyboardInterrupt
++    c : Keyboard interrupt: exiting.
++    c : SW#8:192.168.42.121:47523: deleting
++    c : SW#6:192.168.42.106:50035: deleting
++
++Test connection to a remote server, with automatic hostname
++and subnet guessing:
++
++    $ sshuttle -vNHr example.org
++
++    Starting sshuttle proxy.
++    Listening on ('0.0.0.0', 12300).
++    firewall manager ready.
++    c : connecting to server...
++     s: available routes:
++     s:   77.141.99.0/24
++    c : connected.
++    c : seed_hosts: []
++    firewall manager: starting transproxy.
++    hostwatch: Found: testbox1: 1.2.3.4
++    hostwatch: Found: mytest2: 5.6.7.8
++    hostwatch: Found: domaincontroller: 99.1.2.3
++    c : Accept: '192.168.42.121':60554 -> '77.141.99.22':22.
++    ^C
++    firewall manager: undoing changes.
++    c : Keyboard interrupt: exiting.
++    c : SW#6:192.168.42.121:60554: deleting
++
++
++# DISCUSSION
++
++When it starts, sshuttle creates an ssh session to the
++server specified by the `-r` option.  If `-r` is omitted,
++it will start both its client and server locally, which is
++sometimes useful for testing.
++
++After connecting to the remote server, sshuttle uploads its
++(python) source code to the remote end and executes it
++there.  Thus, you don't need to install sshuttle on the
++remote server, and there are never sshuttle version
++conflicts between client and server.
++
++Unlike most VPNs, sshuttle forwards sessions, not packets. 
++That is, it uses kernel transparent proxying (`iptables
++REDIRECT` rules on Linux, or `ipfw fwd` rules on BSD) to
++capture outgoing TCP sessions, then creates entirely
++separate TCP sessions out to the original destination at
++the other end of the tunnel.
++
++Packet-level forwarding (eg. using the tun/tap devices on
++Linux) seems elegant at first, but it results in
++several problems, notably the 'tcp over tcp' problem.  The
++tcp protocol depends fundamentally on packets being dropped
++in order to implement its congestion control agorithm; if
++you pass tcp packets through a tcp-based tunnel (such as
++ssh), the inner tcp packets will never be dropped, and so
++the inner tcp stream's congestion control will be
++completely broken, and performance will be terrible.  Thus,
++packet-based VPNs (such as IPsec and openvpn) cannot use
++tcp-based encrypted streams like ssh or ssl, and have to
++implement their own encryption from scratch, which is very
++complex and error prone.
++
++sshuttle's simplicity comes from the fact that it can
++safely use the existing ssh encrypted tunnel without
++incurring a performance penalty.  It does this by letting
++the client-side kernel manage the incoming tcp stream, and
++the server-side kernel manage the outgoing tcp stream;
++there is no need for congestion control to be shared
++between the two separate streams, so a tcp-based tunnel is
++fine.
++
++
++# SEE ALSO
++
++`ssh`(1), `python`(1)
++
+--- sshuttle-0.42.orig/README.md
++++ sshuttle-0.42/README.md
+@@ -54,8 +54,14 @@ This is how you use it:
+ 
+  - <tt>./sshuttle -r username@sshserver 0.0.0.0/0 -vv</tt>
+ 
++(You may be prompted for one or more passwords; first, the
++local password to become root using either sudo or su, and
++then the remote ssh password.  Or you might have sudo and ssh set
++up to not require passwords, in which case you won't be
++prompted at all.)
++
+ That's it!  Now your local machine can access the remote network as if you
+-were right there!  And if your "client" machine is a router, everyone on
++were right there.  And if your "client" machine is a router, everyone on
+ your local network can make connections to your remote network.
+ 
+ You don't need to install sshuttle on the remote server;
+--- sshuttle-0.42.orig/ssh.py
++++ sshuttle-0.42/ssh.py
+@@ -21,7 +21,7 @@ def empackage(z, filename):
+     return '%s\n%d\n%s' % (basename,len(content), content)
+ 
+ 
+-def connect(rhostport, python):
++def connect(ssh_cmd, rhostport, python):
+     main_exe = sys.argv[0]
+     l = (rhostport or '').split(':', 1)
+     rhost = l[0]
+@@ -53,7 +53,13 @@ def connect(rhostport, python):
+     if not rhost:
+         argv = [python, '-c', pyscript]
+     else:
+-        argv = ['ssh'] + portl + [rhost, '--', "'%s' -c '%s'" % (python, pyscript)]
++        if ssh_cmd:
++            sshl = ssh_cmd.split(' ')
++        else:
++            sshl = ['ssh']
++        argv = (sshl + 
++                portl + 
++                [rhost, '--', "'%s' -c '%s'" % (python, pyscript)])
+     (s1,s2) = socket.socketpair()
+     def setup():
+         # runs in the child process
+--- sshuttle-0.42.orig/client.py
++++ sshuttle-0.42/client.py
+@@ -31,7 +31,7 @@ class FirewallClient:
+                     ['-v'] * (helpers.verbose or 0) +
+                     ['--firewall', str(port)])
+         argv_tries = [
+-            ['sudo'] + argvbase,
++            ['sudo', '-p', '[local sudo] Password: '] + argvbase,
+             ['su', '-c', ' '.join(argvbase)],
+             argvbase
+         ]
+@@ -45,8 +45,12 @@ class FirewallClient:
+             # run in the child process
+             s2.close()
+         e = None
++        if os.getuid() == 0:
++            argv_tries = argv_tries[-1:]  # last entry only
+         for argv in argv_tries:
+             try:
++                if argv[0] == 'su':
++                    sys.stderr.write('[local su] ')
+                 self.p = ssubprocess.Popen(argv, stdout=s1, preexec_fn=setup)
+                 e = None
+                 break
+@@ -94,35 +98,34 @@ class FirewallClient:
+             raise Fatal('cleanup: %r returned %d' % (self.argv, rv))
+ 
+ 
+-def _main(listener, fw, use_server, remotename, python, seed_hosts, auto_nets):
++def _main(listener, fw, ssh_cmd, remotename, python, seed_hosts, auto_nets):
+     handlers = []
+-    if use_server:
+-        if helpers.verbose >= 1:
+-            helpers.logprefix = 'c : '
++    if helpers.verbose >= 1:
++        helpers.logprefix = 'c : '
++    else:
++        helpers.logprefix = 'client: '
++    debug1('connecting to server...\n')
++    try:
++        (serverproc, serversock) = ssh.connect(ssh_cmd, remotename, python)
++    except socket.error, e:
++        if e.errno == errno.EPIPE:
++            raise Fatal("failed to establish ssh session")
+         else:
+-            helpers.logprefix = 'client: '
+-        debug1('connecting to server...\n')
+-        try:
+-            (serverproc, serversock) = ssh.connect(remotename, python)
+-        except socket.error, e:
+-            if e.errno == errno.EPIPE:
+-                raise Fatal("failed to establish ssh session")
+-            else:
+-                raise
+-        mux = Mux(serversock, serversock)
+-        handlers.append(mux)
++            raise
++    mux = Mux(serversock, serversock)
++    handlers.append(mux)
+ 
+-        expected = 'SSHUTTLE0001'
+-        initstring = serversock.recv(len(expected))
++    expected = 'SSHUTTLE0001'
++    initstring = serversock.recv(len(expected))
++    
++    rv = serverproc.poll()
++    if rv:
++        raise Fatal('server died with error code %d' % rv)
+         
+-        rv = serverproc.poll()
+-        if rv:
+-            raise Fatal('server died with error code %d' % rv)
+-            
+-        if initstring != expected:
+-            raise Fatal('expected server init string %r; got %r'
+-                            % (expected, initstring))
+-        debug1('connected.\n')
++    if initstring != expected:
++        raise Fatal('expected server init string %r; got %r'
++                        % (expected, initstring))
++    debug1('connected.\n')
+ 
+     def onroutes(routestr):
+         if auto_nets:
+@@ -158,12 +161,9 @@ def _main(listener, fw, use_server, remo
+             debug1("-- ignored: that's my address!\n")
+             sock.close()
+             return
+-        if use_server:
+-            chan = mux.next_channel()
+-            mux.send(chan, ssnet.CMD_CONNECT, '%s,%s' % dstip)
+-            outwrap = MuxWrapper(mux, chan)
+-        else:
+-            outwrap = ssnet.connect_dst(dstip[0], dstip[1])
++        chan = mux.next_channel()
++        mux.send(chan, ssnet.CMD_CONNECT, '%s,%s' % dstip)
++        outwrap = MuxWrapper(mux, chan)
+         handlers.append(Proxy(SockWrapper(sock, sock), outwrap))
+     handlers.append(Handler([listener], onaccept))
+ 
+@@ -172,18 +172,16 @@ def _main(listener, fw, use_server, remo
+         mux.send(0, ssnet.CMD_HOST_REQ, '\n'.join(seed_hosts))
+     
+     while 1:
+-        if use_server:
+-            rv = serverproc.poll()
+-            if rv:
+-                raise Fatal('server died with error code %d' % rv)
++        rv = serverproc.poll()
++        if rv:
++            raise Fatal('server died with error code %d' % rv)
+         
+         ssnet.runonce(handlers, mux)
+-        if use_server:
+-            mux.callback()
+-            mux.check_fullness()
++        mux.callback()
++        mux.check_fullness()
+ 
+ 
+-def main(listenip, use_server, remotename, python, seed_hosts, auto_nets,
++def main(listenip, ssh_cmd, remotename, python, seed_hosts, auto_nets,
+          subnets_include, subnets_exclude):
+     debug1('Starting sshuttle proxy.\n')
+     listener = socket.socket()
+@@ -214,7 +212,7 @@ def main(listenip, use_server, remotenam
+     fw = FirewallClient(listenip[1], subnets_include, subnets_exclude)
+     
+     try:
+-        return _main(listener, fw, use_server, remotename,
++        return _main(listener, fw, ssh_cmd, remotename,
+                      python, seed_hosts, auto_nets)
+     finally:
+         fw.done()

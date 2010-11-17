@@ -1,0 +1,80 @@
+.TH "SSHUTTLE" "8" 
+.SH "NAME" 
+sshuttle \(em create a transparent proxy to remotely acces other networks 
+.SH "SYNOPSIS" 
+.PP 
+\fBsshuttle\fR [\fB-l \fIip:\fR\fIport\fR\fP]  [\fB-r \fIusername@sshserver:port\fR\fP]  
+.SH "DESCRIPTION" 
+.PP 
+This manual page documents briefly the 
+\fBsshuttle\fR and \fBbar\fR       commands. 
+.PP 
+This manual page was written for the \fBDebian\fP distribution 
+because the original program does not have a manual page. 
+.PP 
+\fBsshuttle\fR is a program that 
+can be used to setup a transparent proxy server to connect 
+two networks by using a remote server you have an SSH account in 
+that is located in the remote network. In a sense, it acts like 
+a VPN connnection since all the traffic is transparently 
+forwarded between hosts in both networks. 
+.PP 
+Any TCP session initiated to one of the proxied IP addresses will be 
+captured by \fBsshuttle\fR and sent over an ssh session to the 
+remote copy of \fBsshuttle\fR, which will then regenerate the 
+connection on that end, and funnel the data back and forth through ssh. 
+ 
+.PP 
+For \fBsshuttle\fR to work, the user has to 
+be root in the system that starts up the VPN connection. On the 
+other hand, \fBsshuttle\fR does not need to be installed in 
+the remote server, as the initial invocation will make it copy over to it. 
+However, a \fBpython\fR interpreter needs to be available there. 
+It does not require any administrative privileges in the remote machine, and 
+works even if TCP forwarding is disabled in the remote host. 
+.SH "OPTIONS" 
+.PP 
+These programs follow the usual GNU command line syntax, 
+with long options starting with two dashes (`\-').  A summary of 
+options is included below.  For a complete description, see the 
+\fBInfo\fP files. 
+.IP "\fB-l\fP           \fB\-\-listen\fP         " 10 
+Transparent proxy to the IP address and port number provided. 
+By default uses 0.0.0.0:0 (any IP address and any port). 
+.IP "\fB-H\fP           \fB\-\-auto-hosts\fP         " 10 
+Scan for remote hostnames and update local /etc/hosts. 
+.IP "\fB-N\fP           \fB\-\-auto-nets\fP         " 10 
+Automatically determine subnets to route. 
+.IP "\fB\-\-python\fP         " 10 
+Specify the name/path of the python interpreter on the remote 
+server (by default: python). 
+.IP "\fB-r\fP         \fB\-\-remote\fP         " 10 
+Define the SSH hostname (and optionally, the username too) of the remote sshuttle server. 
+.IP "\fB-x\fP         \fB\-\-exclude\fP         " 10 
+Exclude the subnet from the forwarding (can be used more than once). 
+.IP "\fB-v\fP         \fB\-\-verbose\fP         " 10 
+Increase debug message verbosity. 
+.IP "\fB\-\-seed-hosts\fP         " 10 
+When used together with \-H, use these hostnames for the initial 
+scan. The list of hosts has to be comma-separated. 
+.IP "\fB\-\-noserver\fP         " 10 
+Do not use a separate server process. Used mostly for debugging. 
+.SH "SEE ALSO" 
+.PP 
+ssh (1) 
+.PP 
+The documentation avialable at /usr/share/doc/sshuttle or the 
+online documentation available at http://github.com/apenwarr/sshuttle. 
+.SH "AUTHOR" 
+.PP 
+This manual page was written by Javier Fernandez-Sanguino Pen~a jfs@debian.org for 
+the \fBDebian\fP system (and may be used by others).  Permission is 
+granted to copy, distribute and/or modify this document under 
+the terms of the GNU General Public License, Version 2 or any 
+later version published by the Free Software Foundation. 
+ 
+.PP 
+On Debian systems, the complete text of the GNU General Public 
+License can be found in /usr/share/common-licenses/GPL-2. 
+ 
+.\" created by instant / docbook-to-man, Sat 06 Nov 2010, 13:04 

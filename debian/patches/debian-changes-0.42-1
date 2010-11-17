@@ -11,43 +11,29 @@ Description: Upstream changes introduced in version 0.42-1
  The person named in the Author field signed this changelog entry.
 Author: Javier Fernandez-Sanguino Pen~a <jfs@debian.org>
 Bug-Debian: http://bugs.debian.org/601626
+Last-Update: 2010-11-17
+Forwarded: no
 
----
-The information above should follow the Patch Tagging Guidelines, please
-checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
-are templates for supplementary fields that you might want to add:
-
-Origin: <vendor|upstream|other>, <url of original patch>
-Bug: <url in upstream bugtracker>
-Bug-Debian: http://bugs.debian.org/<bugnumber>
-Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
-Forwarded: <no|not-needed|url proving that it has been forwarded>
-Reviewed-By: <name and email of someone who approved the patch>
-Last-Update: <YYYY-MM-DD>
-
---- /dev/null
-+++ sshuttle-0.42/Makefile
-@@ -0,0 +1,23 @@
-+#
-+# Makefile for sshuttle
+--- apenwarr-sshuttle-7d0d5ce/Makefile	1970-01-01 01:00:00.000000000 +0100
++++ sshuttle/Makefile	2010-11-17 01:56:03.185275208 +0100
+@@ -0,0 +1,20 @@
++PANDOC:=$(shell \
++	if pandoc </dev/null 2>/dev/null; then \
++		echo pandoc; \
++	else \
++		echo "Warning: pandoc not installed; can't generate manpages." >&2; \
++		echo '@echo Skipping: pandoc'; \
++	fi)
 +
-+SSHUTTLE_DIR=/usr/lib/sshuttle
-+BIN_DIR=/usr/sbin/
++default: all
 +
-+SSHUTTLE_MAIN=main.py
-+SSHUTTLE_SCRIPTS=assembler.py firewall.py hostwatch.py options.py ssh.py \
-+	client.py helpers.py server.py ssnet.py
 +
-+# Do nothing to build the package
-+all:
++sshuttle.8: sshuttle.md
 +
-+install: install-compat
-+	[ -d "$(PREFIX)$(SSHUTTLE_DIR)" ] || mkdir -p $(PREFIX)$(SSHUTTLE_DIR)
-+	install -m755 $(SSHUTTLE_MAIN) $(PREFIX)$(SSHUTTLE_DIR)
-+	install -m644 $(SSHUTTLE_SCRIPTS) $(PREFIX)$(SSHUTTLE_DIR)
-+	[ -d "$(PREFIX)$(BIN_DIR)" ] || mkdir -p $(PREFIX)$(BIN_DIR)
-+	( cd  $(PREFIX)$(BIN_DIR) && ln -s $(SSHUTTLE_DIR)/$(SSHUTTLE_MAIN) sshuttle )
++%.8: %.md
++	$(PANDOC) -s -r markdown -w man -o $@ $<
 +
-+install-compat:
-+	[ -d "$(PREFIX)$(SSHUTTLE_DIR)/compat" ] || mkdir -p $(PREFIX)$(SSHUTTLE_DIR)/compat
-+	install -m644 compat/*.py $(PREFIX)$(SSHUTTLE_DIR)/compat
++all: sshuttle.8
++
++clean:
++	rm -f *~ */*~ .*~ */.*~ *.8 *.tmp */*.tmp *.pyc */*.pyc

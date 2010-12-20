@@ -15,7 +15,7 @@ CMD_EXIT = 0x4200
 CMD_PING = 0x4201
 CMD_PONG = 0x4202
 CMD_CONNECT = 0x4203
-CMD_CLOSE = 0x4204
+# CMD_CLOSE = 0x4204   # never used - removed
 CMD_EOF = 0x4205
 CMD_DATA = 0x4206
 CMD_ROUTES = 0x4207
@@ -27,7 +27,6 @@ cmd_to_name = {
     CMD_PING: 'PING',
     CMD_PONG: 'PONG',
     CMD_CONNECT: 'CONNECT',
-    CMD_CLOSE: 'CLOSE',
     CMD_EOF: 'EOF',
     CMD_DATA: 'DATA',
     CMD_ROUTES: 'ROUTES',
@@ -75,8 +74,12 @@ def _try_peername(sock):
     return 'unknown'
 
 
+_swcount = 0
 class SockWrapper:
     def __init__(self, rsock, wsock, connect_to=None, peername=None):
+        global _swcount
+        _swcount += 1
+        debug3('creating new SockWrapper (%d now exist\n)' % _swcount)
         self.exc = None
         self.rsock = rsock
         self.wsock = wsock
@@ -87,7 +90,9 @@ class SockWrapper:
         self.try_connect()
 
     def __del__(self):
-        debug1('%r: deleting\n' % self)
+        global _swcount
+        _swcount -= 1
+        debug1('%r: deleting (%d remain)\n' % (self, _swcount))
         if self.exc:
             debug1('%r: error was: %r\n' % (self, self.exc))
 
@@ -258,6 +263,8 @@ class Proxy(Handler):
         if (self.wrap1.shut_read and self.wrap2.shut_read and
             not self.wrap1.buf and not self.wrap2.buf):
             self.ok = False
+            self.wrap1.nowrite()
+            self.wrap2.nowrite()
 
 
 class Mux(Handler):
@@ -343,8 +350,12 @@ class Mux(Handler):
             else:
                 raise Exception('got CMD_HOST_LIST without got_host_list?')
         else:
-            callback = self.channels[channel]
-            callback(cmd, data)
+            callback = self.channels.get(channel)
+            if not callback:
+                log('warning: closed channel %d got cmd=%s len=%d\n' 
+                       % (channel, cmd_to_name.get(cmd,hex(cmd)), len(data)))
+            else:
+                callback(cmd, data)
 
     def flush(self):
         self.wsock.setblocking(False)
@@ -419,11 +430,19 @@ class MuxWrapper(SockWrapper):
     def noread(self):
         if not self.shut_read:
             self.shut_read = True
+            self.maybe_close()
 
     def nowrite(self):
         if not self.shut_write:
             self.shut_write = True
             self.mux.send(self.channel, CMD_EOF, '')
+            self.maybe_close()
+
+    def maybe_close(self):
+        if self.shut_read and self.shut_write:
+            # remove the mux's reference to us.  The python garbage collector
+            # will then be able to reap our object.
+            self.mux.channels[self.channel] = None
 
     def too_full(self):
         return self.mux.too_full
@@ -443,10 +462,7 @@ class MuxWrapper(SockWrapper):
             return None  # no data available right now
 
     def got_packet(self, cmd, data):
-        if cmd == CMD_CLOSE:
-            self.noread()
-            self.nowrite()
-        elif cmd == CMD_EOF:
+        if cmd == CMD_EOF:
             self.noread()
         elif cmd == CMD_DATA:
             self.buf.append(data)
@@ -468,7 +484,10 @@ def runonce(handlers, mux):
     r = []
     w = []
     x = []
-    handlers = filter(lambda s: s.ok, handlers)
+    to_remove = filter(lambda s: not s.ok, handlers)
+    for h in to_remove:
+        handlers.remove(h)
+
     for s in handlers:
         s.pre_select(r,w,x)
     debug2('Waiting: %d r=%r w=%r x=%r (fullness=%d/%d)\n' 

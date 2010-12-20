@@ -56,8 +56,8 @@ python= specify the name/path of the python interpreter on the remote server [py
 r,remote=  ssh hostname (and optional username) of remote sshuttle server
 x,exclude= exclude this subnet (can be used more than once)
 v,verbose  increase debug message verbosity
+e,ssh-cmd= the command to use to connect to the remote [ssh]
 seed-hosts= with -H, use these hostnames for initial scan (comma-separated)
-noserver   don't use a separate server process (mostly for debugging)
 server     (internal use only)
 firewall   (internal use only)
 hostwatch  (internal use only)
@@ -98,9 +98,9 @@ try:
         else:
             sh = None
         sys.exit(client.main(parse_ipport(opt.listen or '0.0.0.0:0'),
-                             not opt.noserver,
+                             opt.ssh_cmd,
                              remotename,
-                             (opt.python or "python"),
+                             opt.python,
                              sh,
                              opt.auto_nets,
                              parse_subnets(includes),

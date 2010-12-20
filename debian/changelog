@@ -1,3 +1,16 @@
+sshuttle (0.43a-1) unstable; urgency=low
+
+  * New upstream version with patches from GIT
+     - Fixes file descriptors leak after a long run (Closes: 607067)
+     - Clear up upstream patches and sync (Closes: 607069)
+  * debian/patches:
+     - Remove debian-changes-0.42-1
+     - Refresh debian-changes-0.42-2
+     - Add debian-changes-0.43a-1: changes introduced in the GIT repository after the
+       0.43a release
+
+ -- Javier Fernandez-Sanguino Pen~a <jfs@debian.org>  Mon, 20 Dec 2010 13:12:00 +0100
+
 sshuttle (0.42-2) unstable; urgency=low
 
   * Update to upstream's latest version

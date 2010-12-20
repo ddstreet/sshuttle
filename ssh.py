@@ -21,16 +21,34 @@ def empackage(z, filename):
     return '%s\n%d\n%s' % (basename,len(content), content)
 
 
-def connect(rhostport, python):
+def connect(ssh_cmd, rhostport, python):
     main_exe = sys.argv[0]
-    l = (rhostport or '').split(':', 1)
-    rhost = l[0]
     portl = []
-    if len(l) > 1:
-        portl = ['-p', str(int(l[1]))]
+
+    rhostIsIPv6 = False
+    if (rhostport or '').count(':') > 1:
+        rhostIsIPv6 = True
+        if rhostport.count(']') or rhostport.count('['):
+            result = rhostport.split(']')
+            rhost = result[0].strip('[')
+            if len(result) > 1:
+                result[1] = result[1].strip(':')
+                if result[1] is not '':
+                    portl = ['-p', str(int(result[1]))]
+        else: # can't disambiguate IPv6 colons and a port number. pass the hostname through.
+            rhost = rhostport
+    else: # IPv4
+        l = (rhostport or '').split(':', 1)
+        rhost = l[0]
+        if len(l) > 1:
+            portl = ['-p', str(int(l[1]))]
 
     if rhost == '-':
         rhost = None
+
+    ipv6flag = []
+    if rhostIsIPv6:
+        ipv6flag = ['-6']
 
     z = zlib.compressobj(1)
     content = readfile('assembler.py')
@@ -53,7 +71,14 @@ def connect(rhostport, python):
     if not rhost:
         argv = [python, '-c', pyscript]
     else:
-        argv = ['ssh'] + portl + [rhost, '--', "'%s' -c '%s'" % (python, pyscript)]
+        if ssh_cmd:
+            sshl = ssh_cmd.split(' ')
+        else:
+            sshl = ['ssh']
+        argv = (sshl + 
+                portl + 
+                ipv6flag + 
+                [rhost, '--', "'%s' -c '%s'" % (python, pyscript)])
     (s1,s2) = socket.socketpair()
     def setup():
         # runs in the child process

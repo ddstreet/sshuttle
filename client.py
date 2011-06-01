@@ -1,8 +1,82 @@
-import struct, socket, select, errno, re
+import struct, socket, select, errno, re, signal, time
 import compat.ssubprocess as ssubprocess
-import helpers, ssnet, ssh
+import helpers, ssnet, ssh, ssyslog
 from ssnet import SockWrapper, Handler, Proxy, Mux, MuxWrapper
 from helpers import *
+
+_extra_fd = os.open('/dev/null', os.O_RDONLY)
+
+def got_signal(signum, frame):
+    log('exiting on signal %d\n' % signum)
+    sys.exit(1)
+
+
+_pidname = None
+def check_daemon(pidfile):
+    global _pidname
+    _pidname = os.path.abspath(pidfile)
+    try:
+        oldpid = open(_pidname).read(1024)
+    except IOError, e:
+        if e.errno == errno.ENOENT:
+            return  # no pidfile, ok
+        else:
+            raise Fatal("can't read %s: %s" % (_pidname, e))
+    if not oldpid:
+        os.unlink(_pidname)
+        return  # invalid pidfile, ok
+    oldpid = int(oldpid.strip() or 0)
+    if oldpid <= 0:
+        os.unlink(_pidname)
+        return  # invalid pidfile, ok
+    try:
+        os.kill(oldpid, 0)
+    except OSError, e:
+        if e.errno == errno.ESRCH:
+            os.unlink(_pidname)
+            return  # outdated pidfile, ok
+        elif e.errno == errno.EPERM:
+            pass
+        else:
+            raise
+    raise Fatal("%s: sshuttle is already running (pid=%d)"
+                % (_pidname, oldpid))
+
+
+def daemonize():
+    if os.fork():
+        os._exit(0)
+    os.setsid()
+    if os.fork():
+        os._exit(0)
+
+    outfd = os.open(_pidname, os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0666)
+    try:
+        os.write(outfd, '%d\n' % os.getpid())
+    finally:
+        os.close(outfd)
+    os.chdir("/")
+
+    # Normal exit when killed, or try/finally won't work and the pidfile won't
+    # be deleted.
+    signal.signal(signal.SIGTERM, got_signal)
+    
+    si = open('/dev/null', 'r+')
+    os.dup2(si.fileno(), 0)
+    os.dup2(si.fileno(), 1)
+    si.close()
+
+    ssyslog.stderr_to_syslog()
+
+
+def daemon_cleanup():
+    try:
+        os.unlink(_pidname)
+    except OSError, e:
+        if e.errno == errno.ENOENT:
+            pass
+        else:
+            raise
 
 
 def original_dst(sock):
@@ -22,14 +96,17 @@ def original_dst(sock):
 
 
 class FirewallClient:
-    def __init__(self, port, subnets_include, subnets_exclude):
+    def __init__(self, port, subnets_include, subnets_exclude, dnsport):
         self.port = port
         self.auto_nets = []
         self.subnets_include = subnets_include
         self.subnets_exclude = subnets_exclude
-        argvbase = ([sys.argv[0]] +
+        self.dnsport = dnsport
+        argvbase = ([sys.argv[1], sys.argv[0], sys.argv[1]] +
                     ['-v'] * (helpers.verbose or 0) +
-                    ['--firewall', str(port)])
+                    ['--firewall', str(port), str(dnsport)])
+        if ssyslog._p:
+            argvbase += ['--syslog']
         argv_tries = [
             ['sudo', '-p', '[local sudo] Password: '] + argvbase,
             ['su', '-c', ' '.join(argvbase)],
@@ -98,25 +175,43 @@ class FirewallClient:
             raise Fatal('cleanup: %r returned %d' % (self.argv, rv))
 
 
-def _main(listener, fw, ssh_cmd, remotename, python, seed_hosts, auto_nets):
+def _main(listener, fw, ssh_cmd, remotename, python, latency_control,
+          dnslistener, seed_hosts, auto_nets,
+          syslog, daemon):
     handlers = []
     if helpers.verbose >= 1:
         helpers.logprefix = 'c : '
     else:
         helpers.logprefix = 'client: '
     debug1('connecting to server...\n')
+
     try:
-        (serverproc, serversock) = ssh.connect(ssh_cmd, remotename, python)
+        (serverproc, serversock) = ssh.connect(ssh_cmd, remotename, python,
+                        stderr=ssyslog._p and ssyslog._p.stdin,
+                        options=dict(latency_control=latency_control))
     except socket.error, e:
-        if e.errno == errno.EPIPE:
-            raise Fatal("failed to establish ssh session")
+        if e.args[0] == errno.EPIPE:
+            raise Fatal("failed to establish ssh session (1)")
         else:
             raise
     mux = Mux(serversock, serversock)
     handlers.append(mux)
 
     expected = 'SSHUTTLE0001'
-    initstring = serversock.recv(len(expected))
+    
+    try:
+        v = 'x'
+        while v and v != '\0':
+            v = serversock.recv(1)
+        v = 'x'
+        while v and v != '\0':
+            v = serversock.recv(1)
+        initstring = serversock.recv(len(expected))
+    except socket.error, e:
+        if e.args[0] == errno.ECONNRESET:
+            raise Fatal("failed to establish ssh session (2)")
+        else:
+            raise
     
     rv = serverproc.poll()
     if rv:
@@ -126,6 +221,14 @@ def _main(listener, fw, ssh_cmd, remotename, python, seed_hosts, auto_nets):
         raise Fatal('expected server init string %r; got %r'
                         % (expected, initstring))
     debug1('connected.\n')
+    print 'Connected.'
+    sys.stdout.flush()
+    if daemon:
+        daemonize()
+        log('daemonizing (%s).\n' % _pidname)
+    elif syslog:
+        debug1('switching to syslog.\n')
+        ssyslog.stderr_to_syslog()
 
     def onroutes(routestr):
         if auto_nets:
@@ -153,19 +256,62 @@ def _main(listener, fw, ssh_cmd, remotename, python, seed_hosts, auto_nets):
     mux.got_host_list = onhostlist
 
     def onaccept():
-        sock,srcip = listener.accept()
+        global _extra_fd
+        try:
+            sock,srcip = listener.accept()
+        except socket.error, e:
+            if e.args[0] in [errno.EMFILE, errno.ENFILE]:
+                debug1('Rejected incoming connection: too many open files!\n')
+                # free up an fd so we can eat the connection
+                os.close(_extra_fd)
+                try:
+                    sock,srcip = listener.accept()
+                    sock.close()
+                finally:
+                    _extra_fd = os.open('/dev/null', os.O_RDONLY)
+                return
+            else:
+                raise
         dstip = original_dst(sock)
-        debug1('Accept: %r:%r -> %r:%r.\n' % (srcip[0],srcip[1],
-                                           dstip[0],dstip[1]))
-        if dstip == listener.getsockname():
+        debug1('Accept: %s:%r -> %s:%r.\n' % (srcip[0],srcip[1],
+                                              dstip[0],dstip[1]))
+        if dstip[1] == listener.getsockname()[1] and islocal(dstip[0]):
             debug1("-- ignored: that's my address!\n")
             sock.close()
             return
         chan = mux.next_channel()
+        if not chan:
+            log('warning: too many open channels.  Discarded connection.\n')
+            sock.close()
+            return
         mux.send(chan, ssnet.CMD_CONNECT, '%s,%s' % dstip)
         outwrap = MuxWrapper(mux, chan)
         handlers.append(Proxy(SockWrapper(sock, sock), outwrap))
     handlers.append(Handler([listener], onaccept))
+
+    dnsreqs = {}
+    def dns_done(chan, data):
+        peer,timeout = dnsreqs.get(chan) or (None,None)
+        debug3('dns_done: channel=%r peer=%r\n' % (chan, peer))
+        if peer:
+            del dnsreqs[chan]
+            debug3('doing sendto %r\n' % (peer,))
+            dnslistener.sendto(data, peer)
+    def ondns():
+        pkt,peer = dnslistener.recvfrom(4096)
+        now = time.time()
+        if pkt:
+            debug1('DNS request from %r: %d bytes\n' % (peer, len(pkt)))
+            chan = mux.next_channel()
+            dnsreqs[chan] = peer,now+30
+            mux.send(chan, ssnet.CMD_DNS_REQ, pkt)
+            mux.channels[chan] = lambda cmd,data: dns_done(chan,data)
+        for chan,(peer,timeout) in dnsreqs.items():
+            if timeout < now:
+                del dnsreqs[chan]
+        debug3('Remaining DNS requests: %d\n' % len(dnsreqs))
+    if dnslistener:
+        handlers.append(Handler([dnslistener], ondns))
 
     if seed_hosts != None:
         debug1('seed_hosts: %r\n' % seed_hosts)
@@ -177,15 +323,24 @@ def _main(listener, fw, ssh_cmd, remotename, python, seed_hosts, auto_nets):
             raise Fatal('server died with error code %d' % rv)
         
         ssnet.runonce(handlers, mux)
+        if latency_control:
+            mux.check_fullness()
         mux.callback()
-        mux.check_fullness()
 
 
-def main(listenip, ssh_cmd, remotename, python, seed_hosts, auto_nets,
-         subnets_include, subnets_exclude):
+def main(listenip, ssh_cmd, remotename, python, latency_control, dns,
+         seed_hosts, auto_nets,
+         subnets_include, subnets_exclude, syslog, daemon, pidfile):
+    if syslog:
+        ssyslog.start_syslog()
+    if daemon:
+        try:
+            check_daemon(pidfile)
+        except Fatal, e:
+            log("%s\n" % e)
+            return 5
     debug1('Starting sshuttle proxy.\n')
-    listener = socket.socket()
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
     if listenip[1]:
         ports = [listenip[1]]
     else:
@@ -195,8 +350,13 @@ def main(listenip, ssh_cmd, remotename, python, seed_hosts, auto_nets,
     debug2('Binding:')
     for port in ports:
         debug2(' %d' % port)
+        listener = socket.socket()
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        dnslistener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        dnslistener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             listener.bind((listenip[0], port))
+            dnslistener.bind((listenip[0], port))
             bound = True
             break
         except socket.error, e:
@@ -209,10 +369,26 @@ def main(listenip, ssh_cmd, remotename, python, seed_hosts, auto_nets,
     listenip = listener.getsockname()
     debug1('Listening on %r.\n' % (listenip,))
 
-    fw = FirewallClient(listenip[1], subnets_include, subnets_exclude)
+    if dns:
+        dnsip = dnslistener.getsockname()
+        debug1('DNS listening on %r.\n' % (dnsip,))
+        dnsport = dnsip[1]
+    else:
+        dnsport = 0
+        dnslistener = None
+
+    fw = FirewallClient(listenip[1], subnets_include, subnets_exclude, dnsport)
     
     try:
         return _main(listener, fw, ssh_cmd, remotename,
-                     python, seed_hosts, auto_nets)
+                     python, latency_control, dnslistener,
+                     seed_hosts, auto_nets, syslog, daemon)
     finally:
-        fw.done()
+        try:
+            if daemon:
+                # it's not our child anymore; can't waitpid
+                fw.p.returncode = 0
+            fw.done()
+        finally:
+            if daemon:
+                daemon_cleanup()

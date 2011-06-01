@@ -1,6 +1,6 @@
-#!/usr/bin/env python
 import sys, os, re
 import helpers, options, client, server, firewall, hostwatch
+import compat.ssubprocess as ssubprocess
 from helpers import *
 
 
@@ -46,36 +46,49 @@ def parse_ipport(s):
 
 optspec = """
 sshuttle [-l [ip:]port] [-r [username@]sshserver[:port]] <subnets...>
-sshuttle --firewall <port> <subnets...>
 sshuttle --server
+sshuttle --firewall <port> <subnets...>
+sshuttle --hostwatch
 --
-l,listen=  transproxy to this ip address and port number [0.0.0.0:0]
+l,listen=  transproxy to this ip address and port number [127.0.0.1:0]
 H,auto-hosts scan for remote hostnames and update local /etc/hosts
 N,auto-nets  automatically determine subnets to route
-python= specify the name/path of the python interpreter on the remote server [python]
+dns        capture local DNS requests and forward to the remote DNS server
+python=    path to python interpreter on the remote server
 r,remote=  ssh hostname (and optional username) of remote sshuttle server
 x,exclude= exclude this subnet (can be used more than once)
 v,verbose  increase debug message verbosity
 e,ssh-cmd= the command to use to connect to the remote [ssh]
 seed-hosts= with -H, use these hostnames for initial scan (comma-separated)
+no-latency-control  sacrifice latency to improve bandwidth benchmarks
+wrap=      restart counting channel numbers after this number (for testing)
+D,daemon   run in the background as a daemon
+syslog     send log messages to syslog (default if you use --daemon)
+pidfile=   pidfile name (only if using --daemon) [./sshuttle.pid]
 server     (internal use only)
 firewall   (internal use only)
 hostwatch  (internal use only)
 """
-o = options.Options('sshuttle', optspec)
-(opt, flags, extra) = o.parse(sys.argv[1:])
+o = options.Options(optspec)
+(opt, flags, extra) = o.parse(sys.argv[2:])
 
+if opt.daemon:
+    opt.syslog = 1
+if opt.wrap:
+    import ssnet
+    ssnet.MAX_CHANNEL = int(opt.wrap)
 helpers.verbose = opt.verbose
 
 try:
     if opt.server:
         if len(extra) != 0:
             o.fatal('no arguments expected')
+        server.latency_control = opt.latency_control
         sys.exit(server.main())
     elif opt.firewall:
-        if len(extra) != 1:
-            o.fatal('exactly one argument expected')
-        sys.exit(firewall.main(int(extra[0])))
+        if len(extra) != 2:
+            o.fatal('exactly two arguments expected')
+        sys.exit(firewall.main(int(extra[0]), int(extra[1]), opt.syslog))
     elif opt.hostwatch:
         sys.exit(hostwatch.hw_main(extra))
     else:
@@ -101,10 +114,13 @@ try:
                              opt.ssh_cmd,
                              remotename,
                              opt.python,
+                             opt.latency_control,
+                             opt.dns,
                              sh,
                              opt.auto_nets,
                              parse_subnets(includes),
-                             parse_subnets(excludes)))
+                             parse_subnets(excludes),
+                             opt.syslog, opt.daemon, opt.pidfile))
 except Fatal, e:
     log('fatal: %s\n' % e)
     sys.exit(99)

@@ -1,3 +1,14 @@
+
+WARNING:
+On MacOS 10.6 (at least up to 10.6.6), your network will
+stop responding about 10 minutes after the first time you
+start sshuttle, because of a MacOS kernel bug relating to
+arp and the net.inet.ip.scopedroute sysctl.  To fix it,
+just switch your wireless off and on. Sshuttle makes the
+kernel setting it changes permanent, so this won't happen
+again, even after a reboot.
+
+
 sshuttle: where transparent proxy meets VPN meets ssh
 =====================================================
 
@@ -52,7 +63,19 @@ This is how you use it:
     on your client machine. You'll need root or sudo
     access, and python needs to be installed.
 
- - <tt>./sshuttle -r username@sshserver 0.0.0.0/0 -vv</tt>
+ - The most basic use of sshuttle looks like:
+  <tt>./sshuttle -r username@sshserver 0.0.0.0/0 -vv</tt>
+
+ - There is a shortcut for 0.0.0.0/0 for those that value
+   their wrists
+   <tt>./sshuttle -r username@sshserver 0/0 -vv</tt>
+
+ - If you would also like your DNS queries to be proxied
+   through the DNS server of the server you are connect to:
+   <tt>./sshuttle --dns -rvv username@sshserver 0/0</tt>
+
+   The above is probably what you want to use to prevent
+   local network attacks such as Firesheep and friends.
 
 (You may be prompted for one or more passwords; first, the
 local password to become root using either sudo or su, and

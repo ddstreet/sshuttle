@@ -1,21 +1,17 @@
 #!/usr/bin/make -f
-# -*- makefile -*-
-
-# Uncomment this to turn on verbose mode.
-#export DH_VERBOSE=1
-
-
 %:
-	dh $@ 
+	dh $@ --with python2
 
-#override_dh_auto_clean:
-#	rm -f debian/sshuttle.8
-#
-#override_dh_auto_build:
-#	docbook-to-man debian/sshuttle.sgml > debian/sshuttle.8
-
+override_dh_auto_clean:
 override_dh_auto_install:
-	PREFIX=debian/sshuttle $(MAKE) install
-# Wrapper install - not required
-#	rm -f debian/sshuttle/usr/sbin/sshuttle
-#	install -m 755 debian/sshuttle.wrapper debian/sshuttle/usr/sbin/sshuttle
+override_dh_auto_test:
+
+override_dh_auto_build:
+	pandoc -s -r markdown -w man -o sshuttle.8 sshuttle.md
+
+override_dh_install:
+	dh_install -Xstresstest.py
+
+get-orig-source:
+	cd $(dir $(firstword $(MAKEFILE_LIST)))../ && \
+	uscan --no-conf --rename --force-download --destdir $(CURDIR)

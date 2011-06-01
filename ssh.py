@@ -14,14 +14,16 @@ def readfile(name):
     raise Exception("can't find file %r in any of %r" % (name, path))
 
 
-def empackage(z, filename):
+def empackage(z, filename, data=None):
     (path,basename) = os.path.split(filename)
-    content = z.compress(readfile(filename))
+    if not data:
+        data = readfile(filename)
+    content = z.compress(data)
     content += z.flush(zlib.Z_SYNC_FLUSH)
-    return '%s\n%d\n%s' % (basename,len(content), content)
+    return '%s\n%d\n%s' % (basename, len(content), content)
 
 
-def connect(ssh_cmd, rhostport, python):
+def connect(ssh_cmd, rhostport, python, stderr, options):
     main_exe = sys.argv[0]
     portl = []
 
@@ -52,7 +54,9 @@ def connect(ssh_cmd, rhostport, python):
 
     z = zlib.compressobj(1)
     content = readfile('assembler.py')
-    content2 = (empackage(z, 'helpers.py') +
+    optdata = ''.join("%s=%r\n" % (k,v) for (k,v) in options.items())
+    content2 = (empackage(z, 'cmdline_options.py', optdata) +
+                empackage(z, 'helpers.py') +
                 empackage(z, 'compat/ssubprocess.py') +
                 empackage(z, 'ssnet.py') +
                 empackage(z, 'hostwatch.py') +
@@ -69,16 +73,23 @@ def connect(ssh_cmd, rhostport, python):
 
         
     if not rhost:
-        argv = [python, '-c', pyscript]
+        # ignore the --python argument when running locally; we already know
+        # which python version works.
+        argv = [sys.argv[1], '-c', pyscript]
     else:
         if ssh_cmd:
             sshl = ssh_cmd.split(' ')
         else:
             sshl = ['ssh']
+        if python:
+            pycmd = "'%s' -c '%s'" % (python, pyscript)
+        else:
+            pycmd = ("P=python2; $P -V 2>/dev/null || P=python; "
+                     "exec \"$P\" -c '%s'") % pyscript
         argv = (sshl + 
                 portl + 
                 ipv6flag + 
-                [rhost, '--', "'%s' -c '%s'" % (python, pyscript)])
+                [rhost, '--', pycmd])
     (s1,s2) = socket.socketpair()
     def setup():
         # runs in the child process
@@ -87,7 +98,7 @@ def connect(ssh_cmd, rhostport, python):
     s1.close()
     debug2('executing: %r\n' % argv)
     p = ssubprocess.Popen(argv, stdin=s1a, stdout=s1b, preexec_fn=setup,
-                         close_fds=True)
+                          close_fds=True, stderr=stderr)
     os.close(s1a)
     os.close(s1b)
     s2.sendall(content)

@@ -1,4 +1,4 @@
-import re, struct, socket, select, traceback
+import re, struct, socket, select, traceback, time
 if not globals().get('skip_imports'):
     import ssnet, helpers, hostwatch
     import compat.ssubprocess as ssubprocess
@@ -106,11 +106,66 @@ class Hostwatch:
         self.sock = None
 
 
+class DnsProxy(Handler):
+    def __init__(self, mux, chan, request):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        Handler.__init__(self, [sock])
+        self.timeout = time.time()+30
+        self.mux = mux
+        self.chan = chan
+        self.tries = 0
+        self.peer = None
+        self.request = request
+        self.sock = sock
+        self.sock.setsockopt(socket.SOL_IP, socket.IP_TTL, 42)
+        self.try_send()
+
+    def try_send(self):
+        if self.tries >= 3:
+            return
+        self.tries += 1
+        self.peer = resolvconf_random_nameserver()
+        self.sock.connect((self.peer, 53))
+        debug2('DNS: sending to %r\n' % self.peer)
+        try:
+            self.sock.send(self.request)
+        except socket.error, e:
+            if e.args[0] in ssnet.NET_ERRS:
+                # might have been spurious; try again.
+                # Note: these errors sometimes are reported by recv(),
+                # and sometimes by send().  We have to catch both.
+                debug2('DNS send to %r: %s\n' % (self.peer, e))
+                self.try_send()
+                return
+            else:
+                log('DNS send to %r: %s\n' % (self.peer, e))
+                return
+
+    def callback(self):
+        try:
+            data = self.sock.recv(4096)
+        except socket.error, e:
+            if e.args[0] in ssnet.NET_ERRS:
+                # might have been spurious; try again.
+                # Note: these errors sometimes are reported by recv(),
+                # and sometimes by send().  We have to catch both.
+                debug2('DNS recv from %r: %s\n' % (self.peer, e))
+                self.try_send()
+                return
+            else:
+                log('DNS recv from %r: %s\n' % (self.peer, e))
+                return
+        debug2('DNS response: %d bytes\n' % len(data))
+        self.mux.send(self.chan, ssnet.CMD_DNS_RESPONSE, data)
+        self.ok = False
+
+
 def main():
     if helpers.verbose >= 1:
         helpers.logprefix = ' s: '
     else:
         helpers.logprefix = 'server: '
+    debug1('latency control setting = %r\n' % latency_control)
 
     routes = list(list_routes())
     debug1('available routes:\n')
@@ -118,7 +173,7 @@ def main():
         debug1('  %s/%d\n' % r)
         
     # synchronization header
-    sys.stdout.write('SSHUTTLE0001')
+    sys.stdout.write('\0\0SSHUTTLE0001')
     sys.stdout.flush()
 
     handlers = []
@@ -164,12 +219,29 @@ def main():
         handlers.append(Proxy(MuxWrapper(mux, channel), outwrap))
     mux.new_channel = new_channel
 
+    dnshandlers = {}
+    def dns_req(channel, data):
+        debug2('Incoming DNS request.\n')
+        h = DnsProxy(mux, channel, data)
+        handlers.append(h)
+        dnshandlers[channel] = h
+    mux.got_dns_req = dns_req
+
     while mux.ok:
         if hw.pid:
+            assert(hw.pid > 0)
             (rpid, rv) = os.waitpid(hw.pid, os.WNOHANG)
             if rpid:
                 raise Fatal('hostwatch exited unexpectedly: code 0x%04x\n' % rv)
         
         ssnet.runonce(handlers, mux)
-        mux.check_fullness()
+        if latency_control:
+            mux.check_fullness()
         mux.callback()
+
+        if dnshandlers:
+            now = time.time()
+            for channel,h in dnshandlers.items():
+                if h.timeout < now or not h.ok:
+                    del dnshandlers[channel]
+                    h.ok = False

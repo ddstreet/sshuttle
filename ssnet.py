@@ -1,6 +1,8 @@
 import struct, socket, errno, select
 if not globals().get('skip_imports'):
     from helpers import *
+
+MAX_CHANNEL = 65535
     
 # these don't exist in the socket module in python 2.3!
 SHUT_RD = 0
@@ -15,25 +17,34 @@ CMD_EXIT = 0x4200
 CMD_PING = 0x4201
 CMD_PONG = 0x4202
 CMD_CONNECT = 0x4203
-# CMD_CLOSE = 0x4204   # never used - removed
+CMD_STOP_SENDING = 0x4204
 CMD_EOF = 0x4205
 CMD_DATA = 0x4206
 CMD_ROUTES = 0x4207
 CMD_HOST_REQ = 0x4208
 CMD_HOST_LIST = 0x4209
+CMD_DNS_REQ = 0x420a
+CMD_DNS_RESPONSE = 0x420b
 
 cmd_to_name = {
     CMD_EXIT: 'EXIT',
     CMD_PING: 'PING',
     CMD_PONG: 'PONG',
     CMD_CONNECT: 'CONNECT',
+    CMD_STOP_SENDING: 'STOP_SENDING',
     CMD_EOF: 'EOF',
     CMD_DATA: 'DATA',
     CMD_ROUTES: 'ROUTES',
     CMD_HOST_REQ: 'HOST_REQ',
     CMD_HOST_LIST: 'HOST_LIST',
+    CMD_DNS_REQ: 'DNS_REQ',
+    CMD_DNS_RESPONSE: 'DNS_RESPONSE',
 }
-    
+
+
+NET_ERRS = [errno.ECONNREFUSED, errno.ETIMEDOUT,
+            errno.EHOSTUNREACH, errno.ENETUNREACH,
+            errno.EHOSTDOWN, errno.ENETDOWN]
 
 
 def _add(l, elem):
@@ -79,7 +90,7 @@ class SockWrapper:
     def __init__(self, rsock, wsock, connect_to=None, peername=None):
         global _swcount
         _swcount += 1
-        debug3('creating new SockWrapper (%d now exist\n)' % _swcount)
+        debug3('creating new SockWrapper (%d now exist)\n' % _swcount)
         self.exc = None
         self.rsock = rsock
         self.wsock = wsock
@@ -94,7 +105,7 @@ class SockWrapper:
         _swcount -= 1
         debug1('%r: deleting (%d remain)\n' % (self, _swcount))
         if self.exc:
-            debug1('%r: error was: %r\n' % (self, self.exc))
+            debug1('%r: error was: %s\n' % (self, self.exc))
 
     def __repr__(self):
         if self.rsock == self.wsock:
@@ -106,6 +117,8 @@ class SockWrapper:
     def seterr(self, e):
         if not self.exc:
             self.exc = e
+        self.nowrite()
+        self.noread()
 
     def try_connect(self):
         if self.connect_to and self.shut_write:
@@ -115,20 +128,34 @@ class SockWrapper:
             return  # already connected
         self.rsock.setblocking(False)
         debug3('%r: trying connect to %r\n' % (self, self.connect_to))
+        if socket.inet_aton(self.connect_to[0])[0] == '\0':
+            self.seterr(Exception("Can't connect to %r: "
+                                  "IP address starts with zero\n"
+                                  % (self.connect_to,)))
+            self.connect_to = None
+            return
         try:
             self.rsock.connect(self.connect_to)
             # connected successfully (Linux)
             self.connect_to = None
         except socket.error, e:
-            debug3('%r: connect result: %r\n' % (self, e))
+            debug3('%r: connect result: %s\n' % (self, e))
+            if e.args[0] == errno.EINVAL:
+                # this is what happens when you call connect() on a socket
+                # that is now connected but returned EINPROGRESS last time,
+                # on BSD, on python pre-2.5.1.  We need to use getsockopt()
+                # to get the "real" error.  Later pythons do this
+                # automatically, so this code won't run.
+                realerr = self.rsock.getsockopt(socket.SOL_SOCKET,
+                                                socket.SO_ERROR)
+                e = socket.error(realerr, os.strerror(realerr))
+                debug3('%r: fixed connect result: %s\n' % (self, e))
             if e.args[0] in [errno.EINPROGRESS, errno.EALREADY]:
                 pass  # not connected yet
             elif e.args[0] == errno.EISCONN:
                 # connected successfully (BSD)
                 self.connect_to = None
-            elif e.args[0] in [errno.ECONNREFUSED, errno.ETIMEDOUT,
-                               errno.EHOSTUNREACH, errno.ENETUNREACH,
-                               errno.EACCES, errno.EPERM]:
+            elif e.args[0] in NET_ERRS + [errno.EACCES, errno.EPERM]:
                 # a "normal" kind of error
                 self.connect_to = None
                 self.seterr(e)
@@ -148,7 +175,7 @@ class SockWrapper:
             try:
                 self.wsock.shutdown(SHUT_WR)
             except socket.error, e:
-                self.seterr(e)
+                self.seterr('nowrite: %s' % e)
 
     def too_full(self):
         return False  # fullness is determined by the socket's select() state
@@ -160,11 +187,14 @@ class SockWrapper:
         try:
             return _nb_clean(os.write, self.wsock.fileno(), buf)
         except OSError, e:
-            # unexpected error... stream is dead
-            self.seterr(e)
-            self.nowrite()
-            self.noread()
-            return 0
+            if e.errno == errno.EPIPE:
+                debug1('%r: uwrite: got EPIPE\n' % self)
+                self.nowrite()
+                return 0
+            else:
+                # unexpected error... stream is dead
+                self.seterr('uwrite: %s' % e)
+                return 0
         
     def write(self, buf):
         assert(buf)
@@ -179,7 +209,7 @@ class SockWrapper:
         try:
             return _nb_clean(os.read, self.rsock.fileno(), 65536)
         except OSError, e:
-            self.seterr(e)
+            self.seterr('uread: %s' % e)
             return '' # unexpected error... we'll call it EOF
 
     def fill(self):
@@ -231,6 +261,9 @@ class Proxy(Handler):
         self.wrap2 = wrap2
 
     def pre_select(self, r, w, x):
+        if self.wrap1.shut_write: self.wrap2.noread()
+        if self.wrap2.shut_write: self.wrap1.noread()
+        
         if self.wrap1.connect_to:
             _add(w, self.wrap1.rsock)
         elif self.wrap1.buf:
@@ -272,7 +305,7 @@ class Mux(Handler):
         Handler.__init__(self, [rsock, wsock])
         self.rsock = rsock
         self.wsock = wsock
-        self.new_channel = self.got_routes = None
+        self.new_channel = self.got_dns_req = self.got_routes = None
         self.got_host_req = self.got_host_list = None
         self.channels = {}
         self.chani = 0
@@ -287,7 +320,7 @@ class Mux(Handler):
         # channel 0 is special, so we never allocate it
         for timeout in xrange(1024):
             self.chani += 1
-            if self.chani > 65535:
+            if self.chani > MAX_CHANNEL:
                 self.chani = 1
             if not self.channels.get(self.chani):
                 return self.chani
@@ -334,6 +367,10 @@ class Mux(Handler):
             assert(not self.channels.get(channel))
             if self.new_channel:
                 self.new_channel(channel, data)
+        elif cmd == CMD_DNS_REQ:
+            assert(not self.channels.get(channel))
+            if self.got_dns_req:
+                self.got_dns_req(channel, data)
         elif cmd == CMD_ROUTES:
             if self.got_routes:
                 self.got_routes(data)
@@ -430,6 +467,7 @@ class MuxWrapper(SockWrapper):
     def noread(self):
         if not self.shut_read:
             self.shut_read = True
+            self.mux.send(self.channel, CMD_STOP_SENDING, '')
             self.maybe_close()
 
     def nowrite(self):
@@ -464,6 +502,8 @@ class MuxWrapper(SockWrapper):
     def got_packet(self, cmd, data):
         if cmd == CMD_EOF:
             self.noread()
+        elif cmd == CMD_STOP_SENDING:
+            self.nowrite()
         elif cmd == CMD_DATA:
             self.buf.append(data)
         else:

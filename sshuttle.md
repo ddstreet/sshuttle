@@ -1,6 +1,6 @@
-% sshuttle(8) Sshuttle 0.42
+% sshuttle(8) Sshuttle 0.46
 % Avery Pennarun <apenwarr@gmail.com>
-% 2010-11-09
+% 2011-01-25
 
 # NAME
 
@@ -41,7 +41,13 @@ entire subnet to the VPN.
 -l, --listen=*[ip:]port*
 :   use this ip address and port number as the transparent
     proxy port.  By default sshuttle finds an available
-    port automatically, so you don't need to override it.
+    port automatically and listens on IP 127.0.0.1
+    (localhost), so you don't need to override it, and
+    connections are only proxied from the local machine,
+    not from outside machines.  If you want to accept
+    connections from other machines on your network (ie. to
+    run sshuttle on a router) try enabling IP Forwarding in
+    your kernel, then using `--listen 0.0.0.0:0`. 
 
 -H, --auto-hosts
 :   scan for remote hostnames and update the local /etc/hosts
@@ -102,6 +108,36 @@ entire subnet to the VPN.
     for lists of local hostnames, but can speed things up
     if you use this option to give it a few names to start
     from.
+    
+--no-latency-control
+:   sacrifice latency to improve bandwidth benchmarks. ssh
+    uses really big socket buffers, which can overload the
+    connection if you start doing large file transfers,
+    thus making all your other sessions inside the same
+    tunnel go slowly. Normally, sshuttle tries to avoid
+    this problem using a "fullness check" that allows only
+    a certain amount of outstanding data to be buffered at
+    a time.  But on high-bandwidth links, this can leave a
+    lot of your bandwidth underutilized.  It also makes
+    sshuttle seem slow in bandwidth benchmarks (benchmarks
+    rarely test ping latency, which is what sshuttle is
+    trying to control).  This option disables the latency
+    control feature, maximizing bandwidth usage.  Use at
+    your own risk.
+    
+-D, --daemon
+:   automatically fork into the background after connecting
+    to the remote server.  Implies `--syslog`.
+    
+--syslog
+:   after connecting, send all log messages to the
+    `syslog`(3) service instead of stderr.  This is
+    implicit if you use `--daemon`.
+    
+--pidfile=*pidfilename*
+:   when using `--daemon`, save sshuttle's pid to
+    *pidfilename*.  The default is `sshuttle.pid` in the
+    current directory.
 
 --server
 :   (internal use only) run the sshuttle server on
@@ -139,8 +175,8 @@ Test locally by proxying all local connections, without using ssh:
      s:   192.168.42.0/24
     c : connected.
     firewall manager: starting transproxy.
-    c : Accept: '192.168.42.106':50035 -> '192.168.42.121':139.
-    c : Accept: '192.168.42.121':47523 -> '77.141.99.22':443.
+    c : Accept: 192.168.42.106:50035 -> 192.168.42.121:139.
+    c : Accept: 192.168.42.121:47523 -> 77.141.99.22:443.
         ...etc...
     ^C
     firewall manager: undoing changes.
@@ -166,7 +202,7 @@ and subnet guessing:
     hostwatch: Found: testbox1: 1.2.3.4
     hostwatch: Found: mytest2: 5.6.7.8
     hostwatch: Found: domaincontroller: 99.1.2.3
-    c : Accept: '192.168.42.121':60554 -> '77.141.99.22':22.
+    c : Accept: 192.168.42.121:60554 -> 77.141.99.22:22.
     ^C
     firewall manager: undoing changes.
     c : Keyboard interrupt: exiting.
@@ -215,6 +251,17 @@ the server-side kernel manage the outgoing tcp stream;
 there is no need for congestion control to be shared
 between the two separate streams, so a tcp-based tunnel is
 fine.
+
+
+# BUGS
+
+On MacOS 10.6 (at least up to 10.6.6), your network will
+stop responding about 10 minutes after the first time you
+start sshuttle, because of a MacOS kernel bug relating to
+arp and the net.inet.ip.scopedroute sysctl.  To fix it,
+just switch your wireless off and on. Sshuttle makes the
+kernel setting it changes permanent, so this won't happen
+again, even after a reboot.
 
 
 # SEE ALSO

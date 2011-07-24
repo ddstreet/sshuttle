@@ -1,6 +1,6 @@
 Description: Document missing option in sshuttle manpage
 Author: Miguel Landaeta <miguel@miguel.cc>
-Forwarded: no
+Forwarded: https://github.com/apenwarr/sshuttle/pull/11
 Last-Update: 2011-04-04
 
 --- sshuttle-0.52.orig/sshuttle.md

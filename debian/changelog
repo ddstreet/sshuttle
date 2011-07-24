@@ -1,3 +1,14 @@
+sshuttle (0.54-1) unstable; urgency=low
+
+  * New upstream release.
+  * Add myself as co-maintainer.
+  * Remove unnecessary README.source.
+  * Document the fact that manpage.diff patch was forwarded to upstream.
+  * Wrap long lines of README.Debian.
+  * Remove unused patches.
+
+ -- Miguel Landaeta <miguel@miguel.cc>  Sun, 24 Jul 2011 21:25:25 +0200
+
 sshuttle (0.53-0.1) unstable; urgency=low
 
   * Non-maintainer upload.

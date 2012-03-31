@@ -7,7 +7,9 @@ override_dh_auto_install:
 override_dh_auto_test:
 
 override_dh_auto_build:
-	pandoc -s -r markdown -w man -o sshuttle.8 sshuttle.md
+	pandoc -s -r markdown -w man -o sshuttle_fix.8 sshuttle.md
+	cat sshuttle_fix.8 | sed -e 's/\\\[em\]/--/g' >sshuttle.8
+	-rm -f sshuttle_fix.8
 
 override_dh_install:
 	dh_install -Xstresstest.py

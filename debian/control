@@ -1,7 +1,7 @@
 Source: sshuttle
 Section: net
 Priority: extra
-Maintainer: Javier Fernandez-Sanguino Pen~a <jfs@debian.org>
+Maintainer: Javier Fernández-Sanguino Peña <jfs@debian.org>
 Uploaders: Miguel Landaeta <miguel@miguel.cc> 
 Build-Depends: debhelper (>= 7.0.50~), pandoc, python (>= 2.6.6-3~)
 Standards-Version: 3.9.2

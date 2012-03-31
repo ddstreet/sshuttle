@@ -1,3 +1,11 @@
+sshuttle (0.54-2) unstable; urgency=low
+
+  * debian/rules: Post-process pandoc result since it converts double dashes
+   to emphasized output and this is not rendered properly in the manpage
+   (Closes: #666265)
+
+ -- Javier Fernández-Sanguino Peña <jfs@debian.org>  Sat, 31 Mar 2012 11:25:25 +0200
+
 sshuttle (0.54-1) unstable; urgency=low
 
   * New upstream release.

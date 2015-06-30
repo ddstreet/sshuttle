@@ -1,1 +1,4 @@
-manpage.diff
+merge_source_060.diff
+add_version_date_to_manpage.diff
+move_documentation.diff
+prevent_hostname_leak.diff

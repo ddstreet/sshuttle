@@ -1,3 +1,45 @@
+sshuttle (0.70-1) unstable; urgency=medium
+
+  * Upgrade to release 0.70 (Closes: #682918)
+  * Add debian/patches/add_version_date_to_manpage.diff and
+    debian/patches/move_documentation.diff to add a tag for version and date
+    in the manpage and move it to the expected location.
+  * Add debian/patches/merge_source_060.diff with the patch from the merge
+    of the new upsteam release with the previous version 0.61 (to be reviewed)
+  * Add debian/patches/prevent_hostname_leak.diff to ensure that the 
+    permissions of temporary files are set to 0600 to prevent sensitive
+    information from being leaked under some circumstances (Closes: 760886)
+  * debian/install: Adjust the location of the Python files with the new
+    upstream release. Also add the files provided in the packaging/ directory
+    upstream (except for the service file, which is provided as an example)
+  * debian/sshuttle.dirs: Create the same directories as those generated
+    by sshuttle's packaging script 'make_deb'
+  * debian/sshuttle.docs: Provide the service script as an example for users
+    to review before deploying
+  * debian/README.Debian: document that an example service file is now
+    provided
+  * debian/control: 
+       + Update Homepage location
+       + Suggest 'autossh' as upstream does
+       + Update Standards-Version, no changes needed
+  * debian/watch: Update watch file with suggested changes from PTS and
+    updating the URL to the latest upstream
+  * debian/copyright: Adjust location of files based on the new upstream
+    directory setup, fix a lintian warning (short license name) and 
+    add licensing for the packaging/ subdir
+
+ -- Javier Fernández-Sanguino Peña <jfs@debian.org>  Tue, 30 Jun 2015 22:41:21 +0200
+
+sshuttle (0.61-1) unstable; urgency=low
+
+  * New upstream release. (Closes: #682918).
+  * Update watch file.
+  * Update copyright file.
+  * Bump Standards-Version to 3.9.3. No changes were required.
+  * Remove debian/patches/manpage.diff since it was merged upstream.
+
+ -- Miguel Landaeta <miguel@miguel.cc>  Fri, 27 Jul 2012 19:53:04 -0430
+
 sshuttle (0.54-2) unstable; urgency=low
 
   * debian/rules: Post-process pandoc result since it converts double dashes

@@ -1,4 +1,4 @@
 version=3
-https://github.com/apenwarr/sshuttle/downloads \
- /apenwarr/sshuttle/tarball/sshuttle-([0-9\.]+) \
- debian debian/orig-tar.sh
+opts=uversionmangle=s/^(\S+-bin)$/0.0.$1/ \
+https://github.com/sshuttle/sshuttle/releases \
+.*[^n]/(?:|v|version-|release-|r|REL_|rel-|sshuttle(?:_|-))(\d[^\s/]*)\.(?:tar\.xz|txz|tar\.bz2|tbz2|tar\.gz|tgz)

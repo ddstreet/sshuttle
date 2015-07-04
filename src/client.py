@@ -184,6 +184,22 @@ def daemon_cleanup():
         else:
             raise
 
+pf_command_file = None
+
+def pf_dst(sock):
+    peer = sock.getpeername()
+    proxy = sock.getsockname()
+
+    argv = (sock.family, socket.IPPROTO_TCP, peer[0], peer[1], proxy[0], proxy[1])
+    pf_command_file.write("QUERY_PF_NAT %r,%r,%s,%r,%s,%r\n" % argv)
+    pf_command_file.flush()
+    line = pf_command_file.readline()
+    debug2("QUERY_PF_NAT %r,%r,%s,%r,%s,%r" % argv + ' > ' + line)
+    if line.startswith('QUERY_PF_NAT_SUCCESS '):
+        (ip, port) = line[21:].split(',')
+        return (ip, int(port))
+
+    return sock.getsockname()
 
 def original_dst(sock):
     try:
@@ -381,6 +397,8 @@ def onaccept_tcp(listener, method, mux, handlers):
             raise
     if method == "tproxy":
         dstip = sock.getsockname()
+    elif method == "pf":
+        dstip = pf_dst(sock)
     else:
         dstip = original_dst(sock)
     debug1('Accept TCP: %s:%r -> %s:%r.\n' % (srcip[0], srcip[1],
@@ -737,6 +755,10 @@ def main(listenip_v6, listenip_v4,
                     socket.SOL_IP, IP_RECVORIGDSTADDR, 1)
             if dns_listener.v6 is not None:
                 dns_listener.v6.setsockopt(SOL_IPV6, IPV6_RECVORIGDSTADDR, 1)
+
+    if fw.method == "pf":
+        global pf_command_file
+        pf_command_file = fw.pfile
 
     try:
         return _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,

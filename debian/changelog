@@ -1,3 +1,12 @@
+sshuttle (0.71-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Add dh-python to Build-Depends
+  * debian/patches/fix_sshuttle_call.diff: Add new patch to fix the call to
+    sshuttle to make it work properly (Debian bug #790893)
+
+ -- Javier Fernández-Sanguino Peña <jfs@debian.org>  Sat, 04 Jul 2015 13:22:27 +0200
+
 sshuttle (0.70-1) unstable; urgency=medium
 
   * Upgrade to release 0.70 (Closes: #682918)

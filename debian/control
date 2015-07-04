@@ -3,7 +3,7 @@ Section: net
 Priority: extra
 Maintainer: Javier Fernández-Sanguino Peña <jfs@debian.org>
 Uploaders: Miguel Landaeta <miguel@miguel.cc> 
-Build-Depends: debhelper (>= 7.0.50~), pandoc, python (>= 2.6.6-3~)
+Build-Depends: debhelper (>= 7.0.50~), pandoc, python (>= 2.6.6-3~), dh-python
 Standards-Version: 3.9.6
 X-Python-Version: >= 2.4
 Homepage: https://github.com/sshuttle/sshuttle

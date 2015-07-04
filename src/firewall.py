@@ -7,8 +7,13 @@ import compat.ssubprocess as ssubprocess
 import ssyslog
 import sys
 import os
+import re
 from helpers import log, debug1, debug3, islocal, Fatal, family_to_string, \
     resolvconf_nameservers
+from fcntl import ioctl
+from ctypes import c_char, c_uint8, c_uint16, c_uint32, Union, Structure, \
+	sizeof, addressof, memmove
+
 
 # python doesn't have a definition for this
 IPPROTO_DIVERT = 254
@@ -463,6 +468,68 @@ def do_ipfw(port, dnsport, family, subnets, udp):
     return do_wait
 
 
+def pfctl(args, stdin = None):
+    argv = ['pfctl'] + list(args.split(" "))
+    debug1('>> %s\n' % ' '.join(argv))
+
+    p = ssubprocess.Popen(argv, stdin = ssubprocess.PIPE, 
+                                stdout = ssubprocess.PIPE, 
+                                stderr = ssubprocess.PIPE)
+    o = p.communicate(stdin)
+    if p.returncode:
+        raise Fatal('%r returned %d' % (argv, p.returncode))
+
+    return o
+
+_pf_context = {'started_by_sshuttle': False, 'Xtoken':''}
+
+def do_pf(port, dnsport, family, subnets, udp):
+    global _pf_started_by_sshuttle
+    tables = []
+    translating_rules = []
+    filtering_rules = []
+
+    if subnets:
+        include_subnets = filter(lambda s:not s[2], sorted(subnets, reverse=True))
+        if include_subnets:
+            tables.append('table <include_subnets> {%s}' % ','.join(["%s/%s" % (n[3], n[1]) for n in include_subnets]))
+            translating_rules.append('rdr pass on lo0 proto tcp to <include_subnets> -> 127.0.0.1 port %r' % port)
+            filtering_rules.append('pass out route-to lo0 inet proto tcp to <include_subnets> keep state')
+
+        exclude_subnets = filter(lambda s:s[2], sorted(subnets, reverse=True))
+        if exclude_subnets:
+            tables.append('table <exclude_subnets> {%s}' % ','.join(["%s/%s" % (n[3], n[1]) for n in exclude_subnets]))
+            filtering_rules.append('pass out route-to lo0 inet proto tcp to <exclude_subnets> keep state')
+
+        if dnsport:
+            nslist = resolvconf_nameservers()
+            tables.append('table <dns_servers> {%s}' % ','.join([ns[1] for ns in nslist]))
+            translating_rules.append('rdr pass on lo0 proto udp to <dns_servers> port 53 -> 127.0.0.1 port %r' % dnsport)
+            filtering_rules.append('pass out route-to lo0 inet proto udp to <dns_servers> port 53 keep state')
+
+        rules = '\n'.join(tables + translating_rules + filtering_rules) + '\n'
+
+        pf_status = pfctl('-s all')[0]
+        if not '\nrdr-anchor "sshuttle" all\n' in pf_status:
+            pf_add_anchor_rule(PF_RDR, "sshuttle")        
+        if not '\nanchor "sshuttle" all\n' in pf_status:
+            pf_add_anchor_rule(PF_PASS, "sshuttle")
+
+        pfctl('-a sshuttle -f /dev/stdin', rules)
+        if sys.platform == "darwin":
+            o = pfctl('-E')
+            _pf_context['Xtoken'] = re.search(r'Token : (.+)', o[1]).group(1)
+        elif 'INFO:\nStatus: Disabled' in pf_status: 
+            pfctl('-e')
+            _pf_context['started_by_sshuttle'] = True
+    else:
+        pfctl('-a sshuttle -F all')
+        if sys.platform == "darwin":
+            pfctl('-X %s' % _pf_context['Xtoken'])
+        elif _pf_context['started_by_sshuttle']:
+            pfctl('-d')
+
+
 def program_exists(name):
     paths = (os.getenv('PATH') or os.defpath).split(os.pathsep)
     for p in paths:
@@ -515,6 +582,106 @@ def restore_etc_hosts(port):
     rewrite_etc_hosts(port)
 
 
+# This are some classes and functions used to support pf in yosemite. 
+class pf_state_xport(Union):
+    _fields_ = [("port", c_uint16),
+                ("call_id", c_uint16),
+                ("spi", c_uint32)]
+
+class pf_addr(Structure):
+    class _pfa(Union):
+        _fields_ = [("v4",            c_uint32),      # struct in_addr
+                    ("v6",            c_uint32 * 4),  # struct in6_addr
+                    ("addr8",         c_uint8 * 16),
+                    ("addr16",        c_uint16 * 8),
+                    ("addr32",        c_uint32 * 4)]
+
+    _fields_ = [("pfa",               _pfa)]
+    _anonymous_ = ("pfa",)
+
+class pfioc_natlook(Structure):
+    _fields_ = [("saddr", pf_addr),
+                ("daddr", pf_addr),
+                ("rsaddr", pf_addr),
+                ("rdaddr", pf_addr),
+                ("sxport", pf_state_xport),
+                ("dxport", pf_state_xport),
+                ("rsxport", pf_state_xport),
+                ("rdxport", pf_state_xport),
+                ("af", c_uint8),                      # sa_family_t  
+                ("proto", c_uint8),
+                ("proto_variant", c_uint8),
+                ("direction", c_uint8)]
+
+pfioc_rule = c_char * 3104  # sizeof(struct pfioc_rule)
+
+pfioc_pooladdr = c_char * 1136 # sizeof(struct pfioc_pooladdr) 
+
+MAXPATHLEN = 1024
+
+DIOCNATLOOK = ((0x40000000L | 0x80000000L) | ((sizeof(pfioc_natlook) & 0x1fff) << 16) | ((ord('D')) << 8) | (23))
+DIOCCHANGERULE = ((0x40000000L | 0x80000000L) | ((sizeof(pfioc_rule) & 0x1fff) << 16) | ((ord('D')) << 8) | (26))
+DIOCBEGINADDRS = ((0x40000000L | 0x80000000L) | ((sizeof(pfioc_pooladdr) & 0x1fff) << 16) | ((ord('D')) << 8) | (51))
+
+PF_CHANGE_ADD_TAIL = 2
+PF_CHANGE_GET_TICKET = 6
+
+PF_PASS = 0
+PF_RDR = 8
+
+PF_OUT = 2
+
+_pf_fd = None
+
+def pf_get_dev():
+    global _pf_fd
+    if _pf_fd == None:
+        _pf_fd = os.open('/dev/pf', os.O_RDWR)
+
+    return _pf_fd
+
+def pf_query_nat(family, proto, src_ip, src_port, dst_ip, dst_port):
+    [proto, family, src_port, dst_port] = [int(v) for v in [proto, family, src_port, dst_port]]
+    
+    length = 4 if family == socket.AF_INET else 16
+
+    pnl = pfioc_natlook()
+    pnl.proto = proto
+    pnl.direction = PF_OUT
+    pnl.af = family
+    memmove(addressof(pnl.saddr), socket.inet_pton(pnl.af, src_ip), length)
+    pnl.sxport.port = socket.htons(src_port)
+    memmove(addressof(pnl.daddr), socket.inet_pton(pnl.af, dst_ip), length)
+    pnl.dxport.port = socket.htons(dst_port)
+
+    ioctl(pf_get_dev(), DIOCNATLOOK, (c_char * sizeof(pnl)).from_address(addressof(pnl)))
+
+    ip = socket.inet_ntop(pnl.af, (c_char * length).from_address(addressof(pnl.rdaddr)))
+    port = socket.ntohs(pnl.rdxport.port)
+    return (ip, port)
+
+def pf_add_anchor_rule(type, name):
+    ACTION_OFFSET = 0
+    POOL_TICKET_OFFSET = 8
+    ANCHOR_CALL_OFFSET = 1040
+    RULE_ACTION_OFFSET = 3068
+
+    pr = pfioc_rule()
+    ppa = pfioc_pooladdr()
+
+    ioctl(pf_get_dev(), DIOCBEGINADDRS, ppa)
+
+    memmove(addressof(pr) + POOL_TICKET_OFFSET, ppa[4:8], 4)  #pool_ticket
+    memmove(addressof(pr) + ANCHOR_CALL_OFFSET, name, min(MAXPATHLEN, len(name)))  #anchor_call = name
+    memmove(addressof(pr) + RULE_ACTION_OFFSET, struct.pack('I', type), 4)  #rule.action = type
+
+    memmove(addressof(pr) + ACTION_OFFSET, struct.pack('I', PF_CHANGE_GET_TICKET), 4) #action = PF_CHANGE_GET_TICKET
+    ioctl(pf_get_dev(), DIOCCHANGERULE, pr)
+
+    memmove(addressof(pr) + ACTION_OFFSET, struct.pack('I', PF_CHANGE_ADD_TAIL), 4) #action = PF_CHANGE_ADD_TAIL
+    ioctl(pf_get_dev(), DIOCCHANGERULE, pr)
+
+
 # This is some voodoo for setting up the kernel's transparent
 # proxying stuff.  If subnets is empty, we just delete our sshuttle rules;
 # otherwise we delete it, then make them from scratch.
@@ -541,8 +708,10 @@ def main(port_v6, port_v4, dnsport_v6, dnsport_v4, method, udp, syslog):
             method = "ipfw"
         elif program_exists('iptables'):
             method = "nat"
+        elif program_exists('pfctl'):
+            method = "pf"
         else:
-            raise Fatal("can't find either ipfw or iptables; check your PATH")
+            raise Fatal("can't find either ipfw, iptables or pfctl; check your PATH")
 
     if method == "nat":
         do_it = do_iptables_nat
@@ -550,6 +719,8 @@ def main(port_v6, port_v4, dnsport_v6, dnsport_v4, method, udp, syslog):
         do_it = do_iptables_tproxy
     elif method == "ipfw":
         do_it = do_ipfw
+    elif method == "pf":
+        do_it = do_pf
     else:
         raise Exception('Unknown method "%s"' % method)
 
@@ -637,6 +808,14 @@ def main(port_v6, port_v4, dnsport_v6, dnsport_v4, method, udp, syslog):
                 (name, ip) = line[5:].strip().split(',', 1)
                 hostmap[name] = ip
                 rewrite_etc_hosts(port_v6 or port_v4)
+            elif line.startswith('QUERY_PF_NAT '):
+                try:
+                    dst = pf_query_nat(*(line[13:].split(',')))
+                    sys.stdout.write('QUERY_PF_NAT_SUCCESS %s,%r\n' % dst)
+                except IOError, e:
+                    sys.stdout.write('QUERY_PF_NAT_FAILURE %s\n' % e)
+
+                sys.stdout.flush()
             elif line:
                 raise Fatal('expected EOF, got %r' % line)
             else:

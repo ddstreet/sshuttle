@@ -1,0 +1,28 @@
+Description: Fix script call to sshuttle
+ This patch fixes upstreams call to sshuttle
+ by hardcoding the DIR variable to the place
+ where sshuttle is installed.
+ .
+ The way the script is programmed does not work
+ if the call to sshuttle is done through the PATH 
+ and it is not an absolute location.
+Author: Javier Fernández-Sanguino Peña <jfs@debian.org>
+Bug-Debian: https://bugs.debian.org/790893
+Forwarded: no
+Last-Update: <2015-07-04>
+
+
+--- a/src/sshuttle
++++ b/src/sshuttle
+@@ -1,10 +1,5 @@
+ #!/bin/sh
+-EXE=$0
+-for i in 1 2 3 4 5 6 7 8 9 10; do
+-	[ -L "$EXE" ] || break
+-	EXE=$(readlink "$EXE")
+-done
+-DIR=$(dirname "$EXE")
++DIR=/usr/lib/sshuttle
+ if python2 -V 2>/dev/null; then
+ 	exec python2 "$DIR/main.py" python2 "$@"
+ else

@@ -1,7 +1,0 @@
-merge_source_060.diff
-add_version_date_to_manpage.diff
-move_documentation.diff
-prevent_hostname_leak.diff
-fix_sshuttle_call.diff
-debug_lines_sent_to_server.diff
-#firewall_skip_empty_lines.diff

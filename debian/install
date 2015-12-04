@@ -1,5 +1,0 @@
-src/*.py                 usr/lib/sshuttle
-src/compat               usr/lib/sshuttle
-src/sshuttle             usr/sbin
-packaging/prefixes.conf  etc/sshuttle
-packaging/tunnel.conf    etc/sshuttle

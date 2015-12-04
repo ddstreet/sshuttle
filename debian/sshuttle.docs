@@ -1,1 +1,2 @@
-packaging/sshuttle.conf
+README.rst
+debian/sshuttle.conf

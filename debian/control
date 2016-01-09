@@ -2,7 +2,7 @@ Source: sshuttle
 Section: net
 Priority: extra
 Maintainer: Javier Fernández-Sanguino Peña <jfs@debian.org>
-Uploaders: Miguel Landaeta <miguel@miguel.cc> 
+Uploaders: Miguel Landaeta <miguel@miguel.cc>, Brian May <bam@debian.org>
 Build-Depends: debhelper (>= 7.0.50~), pandoc, dh-python,
     python3-all, python3-setuptools, python3-pytest, python3-mock
 Standards-Version: 3.9.6

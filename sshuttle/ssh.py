@@ -91,7 +91,8 @@ def connect(ssh_cmd, rhostport, python, stderr, options):
     pyscript = r"""
                 import sys;
                 verbosity=%d;
-                exec compile(sys.stdin.read(%d), "assembler.py", "exec")
+                stdin=getattr(sys.stdin,"buffer",sys.stdin);
+                exec(compile(stdin.read(%d), "assembler.py", "exec"))
                 """ % (helpers.verbose or 0, len(content))
     pyscript = re.sub(r'\s+', ' ', pyscript.strip())
 
@@ -107,7 +108,7 @@ def connect(ssh_cmd, rhostport, python, stderr, options):
         if python:
             pycmd = "'%s' -c '%s'" % (python, pyscript)
         else:
-            pycmd = ("P=python2; $P -V 2>/dev/null || P=python; "
+            pycmd = ("P=python3.5; $P -V 2>/dev/null || P=python; "
                      "exec \"$P\" -c '%s'") % pyscript
         argv = (sshl +
                 portl +

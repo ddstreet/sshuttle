@@ -1,11 +1,13 @@
 .gitignore
 .travis.yml
+CHANGES.rst
 LICENSE
 MANIFEST.in
 README.rst
 VERSION.txt
 run
 setup.py
+tox.ini
 sshuttle/__init__.py
 sshuttle/__main__.py
 sshuttle/assembler.py
@@ -27,7 +29,6 @@ sshuttle.egg-info/dependency_links.txt
 sshuttle.egg-info/entry_points.txt
 sshuttle.egg-info/top_level.txt
 sshuttle/methods/__init__.py
-sshuttle/methods/ipfw.py
 sshuttle/methods/nat.py
 sshuttle/methods/pf.py
 sshuttle/methods/tproxy.py

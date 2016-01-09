@@ -5,6 +5,7 @@ import traceback
 import time
 import sys
 import os
+import platform
 
 import sshuttle.ssnet as ssnet
 import sshuttle.helpers as helpers
@@ -16,22 +17,23 @@ from sshuttle.helpers import log, debug1, debug2, debug3, Fatal, \
 
 
 def _ipmatch(ipstr):
-    if ipstr == 'default':
-        ipstr = '0.0.0.0/0'
-    m = re.match(r'^(\d+(\.\d+(\.\d+(\.\d+)?)?)?)(?:/(\d+))?$', ipstr)
+    if ipstr == b'default':
+        ipstr = b'0.0.0.0/0'
+    m = re.match(b'^(\d+(\.\d+(\.\d+(\.\d+)?)?)?)(?:/(\d+))?$', ipstr)
     if m:
         g = m.groups()
         ips = g[0]
         width = int(g[4] or 32)
         if g[1] is None:
-            ips += '.0.0.0'
+            ips += b'.0.0.0'
             width = min(width, 8)
         elif g[2] is None:
-            ips += '.0.0'
+            ips += b'.0.0'
             width = min(width, 16)
         elif g[3] is None:
-            ips += '.0'
+            ips += b'.0'
             width = min(width, 24)
+        ips = ips.decode("ASCII")
         return (struct.unpack('!I', socket.inet_aton(ips))[0], width)
 
 
@@ -56,11 +58,12 @@ def _shl(n, bits):
 
 
 def _list_routes():
+    # FIXME: IPv4 only
     argv = ['netstat', '-rn']
     p = ssubprocess.Popen(argv, stdout=ssubprocess.PIPE)
     routes = []
     for line in p.stdout:
-        cols = re.split(r'\s+', line)
+        cols = re.split(b'\s+', line)
         ipw = _ipmatch(cols[0])
         if not ipw:
             continue  # some lines won't be parseable; never mind
@@ -214,6 +217,9 @@ class UdpProxy(Handler):
 
 
 def main(latency_control):
+    debug1('Starting server with Python version %s\n'
+           % platform.python_version())
+
     if helpers.verbose >= 1:
         helpers.logprefix = ' s: '
     else:
@@ -235,26 +241,26 @@ def main(latency_control):
               socket.fromfd(sys.stdout.fileno(),
                             socket.AF_INET, socket.SOCK_STREAM))
     handlers.append(mux)
-    routepkt = ''
+    routepkt = b''
     for r in routes:
-        routepkt += '%d,%s,%d\n' % r
+        routepkt += b'%d,%s,%d\n' % (r[0], r[1].encode("ASCII"), r[2])
     mux.send(0, ssnet.CMD_ROUTES, routepkt)
 
     hw = Hostwatch()
-    hw.leftover = ''
+    hw.leftover = b''
 
     def hostwatch_ready(sock):
         assert(hw.pid)
         content = hw.sock.recv(4096)
         if content:
-            lines = (hw.leftover + content).split('\n')
+            lines = (hw.leftover + content).split(b'\n')
             if lines[-1]:
                 # no terminating newline: entry isn't complete yet!
                 hw.leftover = lines.pop()
                 lines.append('')
             else:
-                hw.leftover = ''
-            mux.send(0, ssnet.CMD_HOST_LIST, '\n'.join(lines))
+                hw.leftover = b''
+            mux.send(0, ssnet.CMD_HOST_LIST, b'\n'.join(lines))
         else:
             raise Fatal('hostwatch process died')
 
@@ -266,7 +272,7 @@ def main(latency_control):
     mux.got_host_req = got_host_req
 
     def new_channel(channel, data):
-        (family, dstip, dstport) = data.split(',', 2)
+        (family, dstip, dstport) = data.split(b',', 2)
         family = int(family)
         dstport = int(dstport)
         outwrap = ssnet.connect_dst(family, dstip, dstport)
@@ -324,14 +330,20 @@ def main(latency_control):
 
         if dnshandlers:
             now = time.time()
-            for channel, h in list(dnshandlers.items()):
+            remove = []
+            for channel, h in dnshandlers.items():
                 if h.timeout < now or not h.ok:
                     debug3('expiring dnsreqs channel=%d\n' % channel)
-                    del dnshandlers[channel]
+                    remove.append(channel)
                     h.ok = False
+            for channel in remove:
+                del dnshandlers[channel]
         if udphandlers:
-            for channel, h in list(udphandlers.items()):
+            remove = []
+            for channel, h in udphandlers.items():
                 if not h.ok:
                     debug3('expiring UDP channel=%d\n' % channel)
-                    del udphandlers[channel]
+                    remove.append(channel)
                     h.ok = False
+            for channel in remove:
+                del udphandlers[channel]

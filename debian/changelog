@@ -1,3 +1,9 @@
+sshuttle (0.74-1) experimental; urgency=medium
+
+  * New upstream release.
+
+ -- Brian May <bam@debian.org>  Sun, 10 Jan 2016 10:17:37 +1100
+
 sshuttle (0.73-1) experimental; urgency=medium
 
   * New upstream release.

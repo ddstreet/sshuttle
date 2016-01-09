@@ -28,7 +28,7 @@ setup(
     url='https://github.com/sshuttle/sshuttle',
     author='Brian May',
     author_email='brian@linuxpenguins.xyz',
-    description='Transparent proxy server that works as a poor man\'s VPN.',
+    description='Full-featured" VPN over an SSH tunnel',
     packages=find_packages(),
     license="GPL2+",
     long_description=open('README.rst').read(),
@@ -45,8 +45,9 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'sshuttle = sshuttle.__main__',
+            'sshuttle = sshuttle:__main__',
         ],
     },
+    tests_require=['pytest', 'mock'],
     keywords="ssh vpn",
 )

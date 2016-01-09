@@ -5,6 +5,7 @@ import select
 import errno
 import os
 import sys
+import platform
 
 import subprocess as ssubprocess
 import sshuttle.helpers as helpers
@@ -35,8 +36,9 @@ def write_host_cache():
     try:
         f = open(tmpname, 'wb')
         for name, ip in sorted(hostnames.items()):
-            f.write('%s,%s\n' % (name, ip))
+            f.write(('%s,%s\n' % (name, ip)).encode("ASCII"))
         f.close()
+        os.chmod(tmpname, 0o600)
         os.rename(tmpname, CACHEFILE)
     finally:
         try:
@@ -120,7 +122,7 @@ def _check_netstat():
     argv = ['netstat', '-n']
     try:
         p = ssubprocess.Popen(argv, stdout=ssubprocess.PIPE, stderr=null)
-        content = p.stdout.read()
+        content = p.stdout.read().decode("ASCII")
         p.wait()
     except OSError as e:
         log('%r failed: %r\n' % (argv, e))
@@ -253,6 +255,9 @@ def hw_main(seed_hosts):
         helpers.logprefix = 'HH: '
     else:
         helpers.logprefix = 'hostwatch: '
+
+    debug1('Starting hostwatch with Python version %s\n'
+           % platform.python_version())
 
     read_host_cache()
 

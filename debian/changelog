@@ -1,3 +1,10 @@
+sshuttle (0.75-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Upload to debian unstable now Python3.5 is the default.
+
+ -- Brian May <bam@debian.org>  Tue, 12 Jan 2016 12:37:35 +1100
+
 sshuttle (0.74-1) experimental; urgency=medium
 
   * New upstream release.

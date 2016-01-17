@@ -1,2 +1,3 @@
+docs/.build/html
 README.rst
 debian/sshuttle.conf

@@ -2,12 +2,19 @@
 
 export PYBUILD_NAME=sshuttle
 %:
-	dh $@ --with python3 --buildsystem=pybuild
+	dh $@ --with python3,sphinxdoc --buildsystem=pybuild
 
 override_dh_auto_build:
 	dh_auto_build
-	pandoc -s -r markdown -w man -o sshuttle.8 sshuttle/sshuttle.md
+	PYTHONPATH=. sphinx-build -b html -d docs/.build/.doctrees -N docs docs/.build/html
+	PYTHONPATH=. sphinx-build -b man -d docs/.build/.doctrees -N docs docs/.build/man
 
 override_dh_auto_test:
 	PYTHONPATH=. \
 	    dh_auto_test -- --system=custom --test-args="{interpreter} /usr/bin/py.test-3"
+
+.PHONY: override_dh_clean
+override_dh_clean:
+	dh_clean
+	rm -rf tmp
+	rm -rf docs/.build docs/_build

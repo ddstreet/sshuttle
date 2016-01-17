@@ -1,5 +1,5 @@
-sshuttle: where transparent proxy meets VPN meets ssh
-=====================================================
+Overview
+========
 
 As far as I know, sshuttle is the only program that solves the following
 common case:
@@ -24,24 +24,3 @@ common case:
 - You can't use openssh's PermitTunnel feature because
   it's disabled by default on openssh servers; plus it does
   TCP-over-TCP, which has terrible performance (see below).
-
-
-Obtaining sshuttle
-------------------
-
-- From PyPI::
-
-      pip install sshuttle
-
-- Clone::
-
-      git clone https://github.com/sshuttle/sshuttle.git
-      ./setup.py install
-
-Documentation
--------------
-The documentation for the stable version is available at:
-http://sshuttle.readthedocs.org/
-
-The documentation for the latest development version is available at:
-http://sshuttle.readthedocs.org/en/latest/

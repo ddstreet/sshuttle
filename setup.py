@@ -19,12 +19,20 @@
 
 from setuptools import setup, find_packages
 
-with open('VERSION.txt', 'r') as f:
-    version = f.readline().strip()
+
+def version_scheme(version):
+    from setuptools_scm.version import guess_next_dev_version
+    version = guess_next_dev_version(version)
+    return version.lstrip("v")
 
 setup(
     name="sshuttle",
-    version=version,
+    use_scm_version={
+        'write_to': "sshuttle/version.py",
+        'version_scheme': version_scheme,
+    },
+    setup_requires=['setuptools_scm'],
+    # version=version,
     url='https://github.com/sshuttle/sshuttle',
     author='Brian May',
     author_email='brian@linuxpenguins.xyz',
@@ -45,7 +53,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'sshuttle = sshuttle.__main__',
+            'sshuttle = sshuttle.cmdline:main',
         ],
     },
     tests_require=['pytest', 'mock'],

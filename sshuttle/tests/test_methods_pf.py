@@ -4,7 +4,7 @@ import socket
 
 from sshuttle.methods import get_method
 from sshuttle.helpers import Fatal
-from sshuttle.methods.pf import OsDefs
+from sshuttle.methods.pf import FreeBsd, Darwin, OpenBsd
 
 
 def test_get_supported_features():
@@ -85,7 +85,7 @@ def test_assert_features():
         method.assert_features(features)
 
 
-@patch('sshuttle.methods.pf.osdefs', OsDefs('darwin'))
+@patch('sshuttle.methods.pf.pf', Darwin())
 @patch('sshuttle.methods.pf.sys.stdout')
 @patch('sshuttle.methods.pf.ioctl')
 @patch('sshuttle.methods.pf.pf_get_dev')
@@ -108,11 +108,11 @@ def test_firewall_command_darwin(mock_pf_get_dev, mock_ioctl, mock_stdout):
     ]
 
 
-@patch('sshuttle.methods.pf.osdefs', OsDefs('notdarwin'))
+@patch('sshuttle.methods.pf.pf', FreeBsd())
 @patch('sshuttle.methods.pf.sys.stdout')
 @patch('sshuttle.methods.pf.ioctl')
 @patch('sshuttle.methods.pf.pf_get_dev')
-def test_firewall_command_notdarwin(mock_pf_get_dev, mock_ioctl, mock_stdout):
+def test_firewall_command_freebsd(mock_pf_get_dev, mock_ioctl, mock_stdout):
     method = get_method('pf')
     assert not method.firewall_command("somthing")
 
@@ -131,6 +131,29 @@ def test_firewall_command_notdarwin(mock_pf_get_dev, mock_ioctl, mock_stdout):
     ]
 
 
+@patch('sshuttle.methods.pf.pf', OpenBsd())
+@patch('sshuttle.methods.pf.sys.stdout')
+@patch('sshuttle.methods.pf.ioctl')
+@patch('sshuttle.methods.pf.pf_get_dev')
+def test_firewall_command_openbsd(mock_pf_get_dev, mock_ioctl, mock_stdout):
+    method = get_method('pf')
+    assert not method.firewall_command("somthing")
+
+    command = "QUERY_PF_NAT %d,%d,%s,%d,%s,%d\n" % (
+        socket.AF_INET, socket.IPPROTO_TCP,
+        "127.0.0.1", 1025, "127.0.0.2", 1024)
+    assert method.firewall_command(command)
+
+    assert mock_pf_get_dev.mock_calls == [call()]
+    assert mock_ioctl.mock_calls == [
+        call(mock_pf_get_dev(), 0xc0504417, ANY),
+    ]
+    assert mock_stdout.mock_calls == [
+        call.write('QUERY_PF_NAT_SUCCESS 0.0.0.0,0\n'),
+        call.flush(),
+    ]
+
+
 def pfctl(args, stdin=None):
     if args == '-s all':
         return (b'INFO:\nStatus: Disabled\nanother mary had a little lamb\n',
@@ -141,7 +164,7 @@ def pfctl(args, stdin=None):
 
 
 @patch('sshuttle.helpers.verbose', new=3)
-@patch('sshuttle.methods.pf.osdefs', OsDefs('darwin'))
+@patch('sshuttle.methods.pf.pf', Darwin())
 @patch('sshuttle.methods.pf.pfctl')
 @patch('sshuttle.methods.pf.ioctl')
 @patch('sshuttle.methods.pf.pf_get_dev')
@@ -192,6 +215,7 @@ def test_setup_firewall_darwin(mock_pf_get_dev, mock_ioctl, mock_pfctl):
         call(mock_pf_get_dev(), 0xCC20441A, ANY),
     ]
     assert mock_pfctl.mock_calls == [
+        call('-f /dev/stdin', b'pass on lo\n'),
         call('-s all'),
         call('-a sshuttle -f /dev/stdin',
              b'table <forward_subnets> {!1.2.3.66/32,1.2.3.0/24}\n'
@@ -222,11 +246,11 @@ def test_setup_firewall_darwin(mock_pf_get_dev, mock_ioctl, mock_pfctl):
 
 
 @patch('sshuttle.helpers.verbose', new=3)
-@patch('sshuttle.methods.pf.osdefs', OsDefs('notdarwin'))
+@patch('sshuttle.methods.pf.pf', FreeBsd())
 @patch('sshuttle.methods.pf.pfctl')
 @patch('sshuttle.methods.pf.ioctl')
 @patch('sshuttle.methods.pf.pf_get_dev')
-def test_setup_firewall_notdarwin(mock_pf_get_dev, mock_ioctl, mock_pfctl):
+def test_setup_firewall_freebsd(mock_pf_get_dev, mock_ioctl, mock_pfctl):
     mock_pfctl.side_effect = pfctl
 
     method = get_method('pf')
@@ -285,6 +309,83 @@ def test_setup_firewall_notdarwin(mock_pf_get_dev, mock_ioctl, mock_pfctl):
              b'to <forward_subnets> keep state\n'
              b'pass out route-to lo0 inet proto udp '
              b'to <dns_servers> port 53 keep state\n'),
+        call('-e'),
+    ]
+    mock_pf_get_dev.reset_mock()
+    mock_ioctl.reset_mock()
+    mock_pfctl.reset_mock()
+
+    method.restore_firewall(1025, 2, False)
+    assert mock_ioctl.mock_calls == []
+    assert mock_pfctl.mock_calls == [
+        call('-a sshuttle -F all'),
+        call("-d"),
+    ]
+    mock_pf_get_dev.reset_mock()
+    mock_pfctl.reset_mock()
+    mock_ioctl.reset_mock()
+
+
+@patch('sshuttle.helpers.verbose', new=3)
+@patch('sshuttle.methods.pf.pf', OpenBsd())
+@patch('sshuttle.methods.pf.pfctl')
+@patch('sshuttle.methods.pf.ioctl')
+@patch('sshuttle.methods.pf.pf_get_dev')
+def test_setup_firewall_openbsd(mock_pf_get_dev, mock_ioctl, mock_pfctl):
+    mock_pfctl.side_effect = pfctl
+
+    method = get_method('pf')
+    assert method.name == 'pf'
+
+    with pytest.raises(Exception) as excinfo:
+        method.setup_firewall(
+            1024, 1026,
+            [(10, u'2404:6800:4004:80c::33')],
+            10,
+            [(10, 64, False, u'2404:6800:4004:80c::'),
+                (10, 128, True, u'2404:6800:4004:80c::101f')],
+            True)
+    assert str(excinfo.value) \
+        == 'Address family "AF_INET6" unsupported by pf method_name'
+    assert mock_pf_get_dev.mock_calls == []
+    assert mock_ioctl.mock_calls == []
+    assert mock_pfctl.mock_calls == []
+
+    with pytest.raises(Exception) as excinfo:
+        method.setup_firewall(
+            1025, 1027,
+            [(2, u'1.2.3.33')],
+            2,
+            [(2, 24, False, u'1.2.3.0'), (2, 32, True, u'1.2.3.66')],
+            True)
+    assert str(excinfo.value) == 'UDP not supported by pf method_name'
+    assert mock_pf_get_dev.mock_calls == []
+    assert mock_ioctl.mock_calls == []
+    assert mock_pfctl.mock_calls == []
+
+    method.setup_firewall(
+        1025, 1027,
+        [(2, u'1.2.3.33')],
+        2,
+        [(2, 24, False, u'1.2.3.0'), (2, 32, True, u'1.2.3.66')],
+        False)
+    assert mock_ioctl.mock_calls == [
+        call(mock_pf_get_dev(), 0xcd48441a, ANY),
+        call(mock_pf_get_dev(), 0xcd48441a, ANY),
+    ]
+    assert mock_pfctl.mock_calls == [
+        call('-f /dev/stdin', b'match on lo\n'),
+        call('-s all'),
+        call('-a sshuttle -f /dev/stdin',
+             b'table <forward_subnets> {!1.2.3.66/32,1.2.3.0/24}\n'
+             b'table <dns_servers> {1.2.3.33}\n'
+             b'pass in on lo0 inet proto tcp divert-to 127.0.0.1 port 1025\n'
+             b'pass in on lo0 inet proto udp to '
+             b'<dns_servers>port 53 rdr-to 127.0.0.1 port 1027\n'
+             b'pass out inet proto tcp to '
+             b'<forward_subnets> route-to lo0 keep state\n'
+             b'pass out inet proto udp to '
+             b'<dns_servers> port 53 route-to lo0 keep state\n'),
         call('-e'),
     ]
     mock_pf_get_dev.reset_mock()

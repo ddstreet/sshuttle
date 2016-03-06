@@ -1,3 +1,9 @@
+sshuttle (0.77.2-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Brian May <bam@debian.org>  Mon, 07 Mar 2016 10:07:12 +1100
+
 sshuttle (0.76-1) unstable; urgency=medium
 
   * New upstream release.

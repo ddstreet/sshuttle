@@ -4,6 +4,7 @@ CHANGES.rst
 LICENSE
 MANIFEST.in
 README.rst
+conftest.py
 requirements.txt
 run
 setup.py
@@ -50,8 +51,9 @@ sshuttle/methods/__init__.py
 sshuttle/methods/nat.py
 sshuttle/methods/pf.py
 sshuttle/methods/tproxy.py
-sshuttle/tests/test_firewall.py
-sshuttle/tests/test_helpers.py
-sshuttle/tests/test_methods_nat.py
-sshuttle/tests/test_methods_pf.py
-sshuttle/tests/test_methods_tproxy.py
+sshuttle/tests/client/test_firewall.py
+sshuttle/tests/client/test_helpers.py
+sshuttle/tests/client/test_methods_nat.py
+sshuttle/tests/client/test_methods_pf.py
+sshuttle/tests/client/test_methods_tproxy.py
+sshuttle/tests/server/test_server.py

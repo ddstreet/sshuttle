@@ -1,3 +1,11 @@
+Release 0.78.1 (6th August, 2016)
+=================================
+* Fix readthedocs versioning.
+* Don't crash on ENETUNREACH.
+* Various bug fixes.
+* Improvements to BSD and OSX support.
+
+
 Release 0.78.0 (Apr 8, 2016)
 ============================
 

@@ -63,7 +63,11 @@ def _shl(n, bits):
 def _list_routes():
     # FIXME: IPv4 only
     argv = ['netstat', '-rn']
-    p = ssubprocess.Popen(argv, stdout=ssubprocess.PIPE)
+    env = {
+        'PATH': os.environ['PATH'],
+        'LC_ALL': "C",
+    }
+    p = ssubprocess.Popen(argv, stdout=ssubprocess.PIPE, env=env)
     routes = []
     for line in p.stdout:
         cols = re.split(r'\s+', line.decode("ASCII"))
@@ -94,7 +98,7 @@ def _exc_dump():
     return ''.join(traceback.format_exception(*exc_info))
 
 
-def start_hostwatch(seed_hosts):
+def start_hostwatch(seed_hosts, auto_hosts):
     s1, s2 = socket.socketpair()
     pid = os.fork()
     if not pid:
@@ -106,7 +110,7 @@ def start_hostwatch(seed_hosts):
                 os.dup2(s1.fileno(), 1)
                 os.dup2(s1.fileno(), 0)
                 s1.close()
-                rv = hostwatch.hw_main(seed_hosts) or 0
+                rv = hostwatch.hw_main(seed_hosts, auto_hosts) or 0
             except Exception:
                 log('%s\n' % _exc_dump())
                 rv = 98
@@ -219,11 +223,11 @@ class UdpProxy(Handler):
             log('UDP recv from %r port %d: %s\n' % (peer[0], peer[1], e))
             return
         debug2('UDP response: %d bytes\n' % len(data))
-        hdr = "%s,%r," % (peer[0], peer[1])
+        hdr = b("%s,%r," % (peer[0], peer[1]))
         self.mux.send(self.chan, ssnet.CMD_UDP_DATA, hdr + data)
 
 
-def main(latency_control):
+def main(latency_control, auto_hosts):
     debug1('Starting server with Python version %s\n'
            % platform.python_version())
 
@@ -273,7 +277,8 @@ def main(latency_control):
 
     def got_host_req(data):
         if not hw.pid:
-            (hw.pid, hw.sock) = start_hostwatch(data.strip().split())
+            (hw.pid, hw.sock) = start_hostwatch(
+                    data.strip().split(), auto_hosts)
             handlers.append(Handler(socks=[hw.sock],
                                     callback=hostwatch_ready))
     mux.got_host_req = got_host_req
@@ -281,6 +286,12 @@ def main(latency_control):
     def new_channel(channel, data):
         (family, dstip, dstport) = data.decode("ASCII").split(',', 2)
         family = int(family)
+        # AF_INET is the same constant on Linux and BSD but AF_INET6
+        # is different. As the client and server can be running on
+        # different platforms we can not just set the socket family
+        # to what comes in the wire.
+        if family != socket.AF_INET:
+            family = socket.AF_INET6
         dstport = int(dstport)
         outwrap = ssnet.connect_dst(family, dstip, dstport)
         handlers.append(Proxy(MuxWrapper(mux, channel), outwrap))
@@ -300,7 +311,7 @@ def main(latency_control):
     def udp_req(channel, cmd, data):
         debug2('Incoming UDP request channel=%d, cmd=%d\n' % (channel, cmd))
         if cmd == ssnet.CMD_UDP_DATA:
-            (dstip, dstport, data) = data.split(",", 2)
+            (dstip, dstport, data) = data.split(b(','), 2)
             dstport = int(dstport)
             debug2('is incoming UDP data. %r %d.\n' % (dstip, dstport))
             h = udphandlers[channel]

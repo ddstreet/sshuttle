@@ -11,7 +11,7 @@ from sshuttle.helpers import debug1, debug2, debug3, Fatal, family_to_string
 from sshuttle.methods import BaseMethod
 
 
-_pf_context = {'started_by_sshuttle': False, 'Xtoken': None}
+_pf_context = {'started_by_sshuttle': False, 'Xtoken': []}
 _pf_fd = None
 
 
@@ -59,7 +59,8 @@ class Generic(object):
             pfctl('-e')
             _pf_context['started_by_sshuttle'] = True
 
-    def disable(self):
+    def disable(self, anchor):
+        pfctl('-a %s -F all' % anchor)
         if _pf_context['started_by_sshuttle']:
             pfctl('-d')
 
@@ -96,12 +97,12 @@ class Generic(object):
     def _get_natlook_port(self, xport):
         return xport
 
-    def add_anchors(self, status=None):
+    def add_anchors(self, anchor, status=None):
         if status is None:
             status = pfctl('-s all')[0]
         self.status = status
-        if b'\nanchor "sshuttle"' not in status:
-            self._add_anchor_rule(self.PF_PASS, b"sshuttle")
+        if ('\nanchor "%s"' % anchor).encode('ASCII') not in status:
+            self._add_anchor_rule(self.PF_PASS, anchor.encode('ASCII'))
 
     def _add_anchor_rule(self, type, name, pr=None):
         if pr is None:
@@ -120,10 +121,20 @@ class Generic(object):
             'I', self.PF_CHANGE_ADD_TAIL), 4)  # action = PF_CHANGE_ADD_TAIL
         ioctl(pf_get_dev(), pf.DIOCCHANGERULE, pr)
 
-    def add_rules(self, rules):
+    def _inet_version(self, family):
+        return b'inet' if family == socket.AF_INET else b'inet6'
+
+    def _lo_addr(self, family):
+        return b'127.0.0.1' if family == socket.AF_INET else b'::1'
+
+    def add_rules(self, anchor, rules):
         assert isinstance(rules, bytes)
         debug3("rules:\n" + rules.decode("ASCII"))
-        pfctl('-a sshuttle -f /dev/stdin', rules)
+        pfctl('-a %s -f /dev/stdin' % anchor, rules)
+
+    def has_skip_loopback(self):
+        return b'skip' in pfctl('-s Interfaces -i lo -v')[0]
+
 
 
 class FreeBsd(Generic):
@@ -153,11 +164,11 @@ class FreeBsd(Generic):
     def __init__(self):
         super(FreeBsd, self).__init__()
 
-    def add_anchors(self):
+    def add_anchors(self, anchor):
         status = pfctl('-s all')[0]
-        if b'\nrdr-anchor "sshuttle"' not in status:
-            self._add_anchor_rule(self.PF_RDR, b'sshuttle')
-        super(FreeBsd, self).add_anchors(status=status)
+        if ('\nrdr-anchor "%s"' % anchor).encode('ASCII') not in status:
+            self._add_anchor_rule(self.PF_RDR, anchor.encode('ASCII'))
+        super(FreeBsd, self).add_anchors(anchor, status=status)
 
     def _add_anchor_rule(self, type, name):
         pr = self.pfioc_rule()
@@ -168,17 +179,20 @@ class FreeBsd(Generic):
         memmove(addressof(pr) + self.POOL_TICKET_OFFSET, ppa[4:8], 4)
         super(FreeBsd, self)._add_anchor_rule(type, name, pr=pr)
 
-    def add_rules(self, includes, port, dnsport, nslist):
+    def add_rules(self, anchor, includes, port, dnsport, nslist, family):
+        inet_version = self._inet_version(family)
+        lo_addr = self._lo_addr(family)
+
         tables = [
             b'table <forward_subnets> {%s}' % b','.join(includes)
         ]
         translating_rules = [
-            b'rdr pass on lo0 proto tcp '
-            b'to <forward_subnets> -> 127.0.0.1 port %r' % port
+            b'rdr pass on lo0 %s proto tcp to <forward_subnets> '
+            b'-> %s port %r' % (inet_version, lo_addr, port)
         ]
         filtering_rules = [
-            b'pass out route-to lo0 inet proto tcp '
-            b'to <forward_subnets> keep state'
+            b'pass out route-to lo0 %s proto tcp '
+            b'to <forward_subnets> keep state' % inet_version
         ]
 
         if len(nslist) > 0:
@@ -186,16 +200,16 @@ class FreeBsd(Generic):
                 b'table <dns_servers> {%s}' %
                 b','.join([ns[1].encode("ASCII") for ns in nslist]))
             translating_rules.append(
-                b'rdr pass on lo0 proto udp to '
-                b'<dns_servers> port 53 -> 127.0.0.1 port %r' % dnsport)
+                b'rdr pass on lo0 %s proto udp to <dns_servers> '
+                b'port 53 -> %s port %r' % (inet_version, lo_addr, dnsport))
             filtering_rules.append(
-                b'pass out route-to lo0 inet proto udp to '
-                b'<dns_servers> port 53 keep state')
+                b'pass out route-to lo0 %s proto udp to '
+                b'<dns_servers> port 53 keep state' % inet_version)
 
         rules = b'\n'.join(tables + translating_rules + filtering_rules) \
                 + b'\n'
 
-        super(FreeBsd, self).add_rules(rules)
+        super(FreeBsd, self).add_rules(anchor, rules)
 
 
 class OpenBsd(Generic):
@@ -225,24 +239,28 @@ class OpenBsd(Generic):
         self.pfioc_natlook = pfioc_natlook
         super(OpenBsd, self).__init__()
 
-    def add_anchors(self):
+    def add_anchors(self, anchor):
         # before adding anchors and rules we must override the skip lo
         # that comes by default in openbsd pf.conf so the rules we will add,
         # which rely on translating/filtering  packets on lo, can work
-        pfctl('-f /dev/stdin', b'match on lo\n')
-        super(OpenBsd, self).add_anchors()
+        if self.has_skip_loopback():
+            pfctl('-f /dev/stdin', b'match on lo\n')
+        super(OpenBsd, self).add_anchors(anchor)
 
-    def add_rules(self, includes, port, dnsport, nslist):
+    def add_rules(self, anchor, includes, port, dnsport, nslist, family):
+        inet_version = self._inet_version(family)
+        lo_addr = self._lo_addr(family)
+
         tables = [
             b'table <forward_subnets> {%s}' % b','.join(includes)
         ]
         translating_rules = [
-            b'pass in on lo0 inet proto tcp '
-            b'divert-to 127.0.0.1 port %r' % port
+            b'pass in on lo0 %s proto tcp to <forward_subnets> '
+            b'divert-to %s port %r' % (inet_version, lo_addr, port)
         ]
         filtering_rules = [
-            b'pass out inet proto tcp '
-            b'to <forward_subnets> route-to lo0 keep state'
+            b'pass out %s proto tcp to <forward_subnets> '
+            b'route-to lo0 keep state' % inet_version
         ]
 
         if len(nslist) > 0:
@@ -250,16 +268,16 @@ class OpenBsd(Generic):
                 b'table <dns_servers> {%s}' %
                 b','.join([ns[1].encode("ASCII") for ns in nslist]))
             translating_rules.append(
-                b'pass in on lo0 inet proto udp to <dns_servers>'
-                b'port 53 rdr-to 127.0.0.1 port %r' % dnsport)
+                b'pass in on lo0 %s proto udp to <dns_servers> port 53 '
+                b'rdr-to %s port %r' % (inet_version, lo_addr, dnsport))
             filtering_rules.append(
-                b'pass out inet proto udp to '
-                b'<dns_servers> port 53 route-to lo0 keep state')
+                b'pass out %s proto udp to <dns_servers> port 53 '
+                b'route-to lo0 keep state' % inet_version)
 
         rules = b'\n'.join(tables + translating_rules + filtering_rules) \
                 + b'\n'
 
-        super(OpenBsd, self).add_rules(rules)
+        super(OpenBsd, self).add_rules(anchor, rules)
 
 
 class Darwin(FreeBsd):
@@ -292,19 +310,20 @@ class Darwin(FreeBsd):
 
     def enable(self):
         o = pfctl('-E')
-        _pf_context['Xtoken'] = \
-            re.search(b'Token : (.+)', o[1]).group(1)
+        _pf_context['Xtoken'].append(re.search(b'Token : (.+)', o[1]).group(1))
 
-    def disable(self):
-        if _pf_context['Xtoken'] is not None:
-            pfctl('-X %s' % _pf_context['Xtoken'].decode("ASCII"))
+    def disable(self, anchor):
+        pfctl('-a %s -F all' % anchor)
+        if _pf_context['Xtoken']:
+            pfctl('-X %s' % _pf_context['Xtoken'].pop().decode("ASCII"))
 
-    def add_anchors(self):
+    def add_anchors(self, anchor):
         # before adding anchors and rules we must override the skip lo
         # that in some cases ends up in the chain so the rules we will add,
         # which rely on translating/filtering  packets on lo, can work
-        pfctl('-f /dev/stdin', b'pass on lo\n')
-        super(Darwin, self).add_anchors()
+        if self.has_skip_loopback():
+            pfctl('-f /dev/stdin', b'pass on lo\n')
+        super(Darwin, self).add_anchors(anchor)
 
     def _add_natlook_ports(self, pnl, src_port, dst_port):
         pnl.sxport.port = socket.htons(src_port)
@@ -326,9 +345,14 @@ def pfctl(args, stdin=None):
     argv = ['pfctl'] + list(args.split(" "))
     debug1('>> %s\n' % ' '.join(argv))
 
+    env = {
+        'PATH': os.environ['PATH'],
+        'LC_ALL': "C",
+    }
     p = ssubprocess.Popen(argv, stdin=ssubprocess.PIPE,
                           stdout=ssubprocess.PIPE,
-                          stderr=ssubprocess.PIPE)
+                          stderr=ssubprocess.PIPE,
+                          env=env)
     o = p.communicate(stdin)
     if p.returncode:
         raise Fatal('%r returned %d' % (argv, p.returncode))
@@ -344,8 +368,16 @@ def pf_get_dev():
     return _pf_fd
 
 
+def pf_get_anchor(family, port):
+    return 'sshuttle%s-%d' % ('' if family == socket.AF_INET else '6', port)
+
 
 class Method(BaseMethod):
+
+    def get_supported_features(self):
+        result = super(Method, self).get_supported_features()
+        result.ipv6 = True
+        return result
 
     def get_tcp_dstip(self, sock):
         pfile = self.firewall.pfile
@@ -372,7 +404,7 @@ class Method(BaseMethod):
         translating_rules = []
         filtering_rules = []
 
-        if family != socket.AF_INET:
+        if family not in [socket.AF_INET, socket.AF_INET6]:
             raise Exception(
                 'Address family "%s" unsupported by pf method_name'
                 % family_to_string(family))
@@ -391,20 +423,20 @@ class Method(BaseMethod):
                                     snet.encode("ASCII"),
                                     swidth))
 
-        pf.add_anchors()
-        pf.add_rules(includes, port, dnsport, nslist)
+        anchor = pf_get_anchor(family, port)
+        pf.add_anchors(anchor)
+        pf.add_rules(anchor, includes, port, dnsport, nslist, family)
         pf.enable()
 
     def restore_firewall(self, port, family, udp):
-        if family != socket.AF_INET:
+        if family not in [socket.AF_INET, socket.AF_INET6]:
             raise Exception(
                 'Address family "%s" unsupported by pf method_name'
                 % family_to_string(family))
         if udp:
             raise Exception("UDP not supported by pf method_name")
 
-        pfctl('-a sshuttle -F all')
-        pf.disable()
+        pf.disable(pf_get_anchor(family, port))
 
     def firewall_command(self, line):
         if line.startswith('QUERY_PF_NAT '):

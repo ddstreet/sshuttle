@@ -1,4 +1,3 @@
-# FILE COPIED FROM conf.orig.py; DO NOT CHANGE
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #

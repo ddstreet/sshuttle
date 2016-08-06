@@ -29,13 +29,12 @@ def main():
             includes = opt.subnets
             excludes = opt.exclude
             if not includes and not opt.auto_nets:
-                parser.error('at least one subnet, subnet file, or -N expected')
+                parser.error('at least one subnet, subnet file, '
+                             'or -N expected')
             remotename = opt.remote
             if remotename == '' or remotename == '-':
                 remotename = None
             nslist = [family_ip_tuple(ns) for ns in opt.ns_hosts]
-            if opt.seed_hosts and not opt.auto_hosts:
-                parser.error('--seed-hosts only works if you also use -H')
             if opt.seed_hosts:
                 sh = re.split(r'[\s,]+', (opt.seed_hosts or "").strip())
             elif opt.auto_hosts:
@@ -68,6 +67,7 @@ def main():
                                       nslist,
                                       opt.method,
                                       sh,
+                                      opt.auto_hosts,
                                       opt.auto_nets,
                                       includes,
                                       excludes,

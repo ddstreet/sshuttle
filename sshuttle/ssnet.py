@@ -54,7 +54,8 @@ cmd_to_name = {
 
 NET_ERRS = [errno.ECONNREFUSED, errno.ETIMEDOUT,
             errno.EHOSTUNREACH, errno.ENETUNREACH,
-            errno.EHOSTDOWN, errno.ENETDOWN]
+            errno.EHOSTDOWN, errno.ENETDOWN,
+            errno.ENETUNREACH]
 
 
 def _add(l, elem):
@@ -357,8 +358,8 @@ class Mux(Handler):
 
     def amount_queued(self):
         total = 0
-        for b in self.outbuf:
-            total += len(b)
+        for byte in self.outbuf:
+            total += len(byte)
         return total
 
     def check_fullness(self):
@@ -375,7 +376,8 @@ class Mux(Handler):
     def send(self, channel, cmd, data):
         assert isinstance(data, binary_type)
         assert len(data) <= 65535
-        p = struct.pack('!ccHHH', b('S'), b('S'), channel, cmd, len(data)) + data
+        p = struct.pack('!ccHHH', b('S'), b('S'), channel, cmd, len(data)) \
+            + data
         self.outbuf.append(p)
         debug2(' > channel=%d cmd=%s len=%d (fullness=%d)\n'
                % (channel, cmd_to_name.get(cmd, hex(cmd)),
@@ -556,7 +558,7 @@ def connect_dst(family, ip, port):
     outsock.setsockopt(socket.SOL_IP, socket.IP_TTL, 42)
     return SockWrapper(outsock, outsock,
                        connect_to=(ip, port),
-                       peername = '%s:%d' % (ip, port))
+                       peername='%s:%d' % (ip, port))
 
 
 def runonce(handlers, mux):

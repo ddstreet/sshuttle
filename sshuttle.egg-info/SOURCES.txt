@@ -7,11 +7,12 @@ README.rst
 conftest.py
 requirements.txt
 run
+setup.cfg
 setup.py
-test.py
 tox.ini
 docs/Makefile
 docs/changes.rst
+docs/conf.orig.py
 docs/conf.py
 docs/how-it-works.rst
 docs/index.rst

@@ -1,3 +1,12 @@
+sshuttle (0.78.1-1) unstable; urgency=medium
+
+  * New upstream version.
+  * Set maintainer to myself.
+  * Update debian standards version to 3.9.8
+  * Fix upstream changelog. Closes: #812976.
+
+ -- Brian May <bam@debian.org>  Sat, 06 Aug 2016 21:03:40 +1000
+
 sshuttle (0.78.0-1) unstable; urgency=medium
 
   * New upstream version

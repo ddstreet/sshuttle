@@ -15,6 +15,7 @@ except ImportError:
     # Python 2.x
     from pipes import quote
 
+
 def readfile(name):
     tokens = name.split(".")
     f = None
@@ -105,7 +106,7 @@ def connect(ssh_cmd, rhostport, python, stderr, options):
     if not rhost:
         # ignore the --python argument when running locally; we already know
         # which python version works.
-        argv = [sys.argv[1], '-c', pyscript]
+        argv = [sys.executable, '-c', pyscript]
     else:
         if ssh_cmd:
             sshl = ssh_cmd.split(' ')

@@ -1,12 +1,15 @@
 import os
 import sys
+import platform
 import re
 import socket
 import struct
 import subprocess as ssubprocess
+import shlex
 from fcntl import ioctl
 from ctypes import c_char, c_uint8, c_uint16, c_uint32, Union, Structure, \
     sizeof, addressof, memmove
+from sshuttle.firewall import subnet_weight
 from sshuttle.helpers import debug1, debug2, debug3, Fatal, family_to_string
 from sshuttle.methods import BaseMethod
 
@@ -63,6 +66,7 @@ class Generic(object):
         pfctl('-a %s -F all' % anchor)
         if _pf_context['started_by_sshuttle']:
             pfctl('-d')
+            _pf_context['started_by_sshuttle'] = False
 
     def query_nat(self, family, proto, src_ip, src_port, dst_ip, dst_port):
         [proto, family, src_port, dst_port] = [
@@ -183,16 +187,18 @@ class FreeBsd(Generic):
         inet_version = self._inet_version(family)
         lo_addr = self._lo_addr(family)
 
-        tables = [
-            b'table <forward_subnets> {%s}' % b','.join(includes)
-        ]
+        tables = []
         translating_rules = [
-            b'rdr pass on lo0 %s proto tcp to <forward_subnets> '
-            b'-> %s port %r' % (inet_version, lo_addr, port)
+            b'rdr pass on lo0 %s proto tcp to %s '
+            b'-> %s port %r' % (inet_version, subnet, lo_addr, port)
+            for exclude, subnet in includes if not exclude
         ]
         filtering_rules = [
             b'pass out route-to lo0 %s proto tcp '
-            b'to <forward_subnets> keep state' % inet_version
+            b'to %s keep state' % (inet_version, subnet)
+            if not exclude else
+            b'pass out quick %s proto tcp to %s' % (inet_version, subnet)
+            for exclude, subnet in includes
         ]
 
         if len(nslist) > 0:
@@ -251,16 +257,18 @@ class OpenBsd(Generic):
         inet_version = self._inet_version(family)
         lo_addr = self._lo_addr(family)
 
-        tables = [
-            b'table <forward_subnets> {%s}' % b','.join(includes)
-        ]
+        tables = []
         translating_rules = [
-            b'pass in on lo0 %s proto tcp to <forward_subnets> '
-            b'divert-to %s port %r' % (inet_version, lo_addr, port)
+            b'pass in on lo0 %s proto tcp to %s '
+            b'divert-to %s port %r' % (inet_version, subnet, lo_addr, port)
+            for exclude, subnet in includes if not exclude
         ]
         filtering_rules = [
-            b'pass out %s proto tcp to <forward_subnets> '
-            b'route-to lo0 keep state' % inet_version
+            b'pass out %s proto tcp to %s '
+            b'route-to lo0 keep state' % (inet_version, subnet)
+            if not exclude else
+            b'pass out quick %s proto tcp to %s' % (inet_version, subnet)
+            for exclude, subnet in includes
         ]
 
         if len(nslist) > 0:
@@ -333,16 +341,26 @@ class Darwin(FreeBsd):
         return xport.port
 
 
+class PfSense(FreeBsd):
+    RULE_ACTION_OFFSET = 3040
+
+    def __init__(self):
+        self.pfioc_rule = c_char * 3112
+        super(PfSense, self).__init__()
+
+
 if sys.platform == 'darwin':
     pf = Darwin()
 elif sys.platform.startswith('openbsd'):
     pf = OpenBsd()
+elif platform.version().endswith('pfSense'):
+    pf = PfSense()
 else:
     pf = FreeBsd()
 
 
 def pfctl(args, stdin=None):
-    argv = ['pfctl'] + list(args.split(" "))
+    argv = ['pfctl'] + shlex.split(args)
     debug1('>> %s\n' % ' '.join(argv))
 
     env = {
@@ -416,12 +434,12 @@ class Method(BaseMethod):
             # If a given subnet is both included and excluded, list the
             # exclusion first; the table will ignore the second, opposite
             # definition
-            for f, swidth, sexclude, snet in sorted(
-                    subnets, key=lambda s: (s[1], s[2]), reverse=True):
-                includes.append(b"%s%s/%d" %
-                                (b"!" if sexclude else b"",
-                                    snet.encode("ASCII"),
-                                    swidth))
+            for f, swidth, sexclude, snet, fport, lport \
+                    in sorted(subnets, key=subnet_weight, reverse=True):
+                includes.append((sexclude, b"%s/%d%s" % (
+                    snet.encode("ASCII"),
+                    swidth,
+                    b" port %d:%d" % (fport, lport) if fport else b"")))
 
         anchor = pf_get_anchor(family, port)
         pf.add_anchors(anchor)

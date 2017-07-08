@@ -15,6 +15,11 @@ from sshuttle.ssnet import Handler, Proxy, Mux, MuxWrapper
 from sshuttle.helpers import b, log, debug1, debug2, debug3, Fatal, \
     resolvconf_random_nameserver
 
+try:
+    from shutil import which
+except ImportError:
+    from distutils.spawn import find_executable as which
+
 
 def _ipmatch(ipstr):
     # FIXME: IPv4 only
@@ -60,9 +65,27 @@ def _shl(n, bits):
     return n * int(2 ** bits)
 
 
-def _list_routes():
+def _route_netstat(line):
+    cols = line.split(None)
+    if len(cols) < 3:
+        return None, None
+    ipw = _ipmatch(cols[0])
+    maskw = _ipmatch(cols[2])  # linux only
+    mask = _maskbits(maskw)   # returns 32 if maskw is null
+    return ipw, mask
+
+
+def _route_iproute(line):
+    ipm = line.split(None, 1)[0]
+    if '/' not in ipm:
+        return None, None
+    ip, mask = ipm.split('/')
+    ipw = _ipmatch(ip)
+    return ipw, int(mask)
+
+
+def _list_routes(argv, extract_route):
     # FIXME: IPv4 only
-    argv = ['netstat', '-rn']
     env = {
         'PATH': os.environ['PATH'],
         'LC_ALL': "C",
@@ -70,12 +93,11 @@ def _list_routes():
     p = ssubprocess.Popen(argv, stdout=ssubprocess.PIPE, env=env)
     routes = []
     for line in p.stdout:
-        cols = re.split(r'\s+', line.decode("ASCII"))
-        ipw = _ipmatch(cols[0])
+        if not line.strip():
+            continue
+        ipw, mask = extract_route(line.decode("ASCII"))
         if not ipw:
-            continue  # some lines won't be parseable; never mind
-        maskw = _ipmatch(cols[2])  # linux only
-        mask = _maskbits(maskw)   # returns 32 if maskw is null
+            continue
         width = min(ipw[1], mask)
         ip = ipw[0] & _shl(_shl(1, width) - 1, 32 - width)
         routes.append(
@@ -84,11 +106,20 @@ def _list_routes():
     if rv != 0:
         log('WARNING: %r returned %d\n' % (argv, rv))
         log('WARNING: That prevents --auto-nets from working.\n')
+
     return routes
 
 
 def list_routes():
-    for (family, ip, width) in _list_routes():
+    if which('ip'):
+        routes = _list_routes(['ip', 'route'], _route_iproute)
+    elif which('netstat'):
+        routes = _list_routes(['netstat', '-rn'], _route_netstat)
+    else:
+        log('WARNING: Neither ip nor netstat were found on the server.\n')
+        routes = []
+
+    for (family, ip, width) in routes:
         if not ip.startswith('0.') and not ip.startswith('127.'):
             yield (family, ip, width)
 

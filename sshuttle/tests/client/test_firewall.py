@@ -1,15 +1,16 @@
 from mock import Mock, patch, call
 import io
+import socket
 
 import sshuttle.firewall
 
 
 def setup_daemon():
     stdin = io.StringIO(u"""ROUTES
-2,24,0,1.2.3.0
-2,32,1,1.2.3.66
-10,64,0,2404:6800:4004:80c::
-10,128,1,2404:6800:4004:80c::101f
+2,24,0,1.2.3.0,8000,9000
+2,32,1,1.2.3.66,8080,8080
+10,64,0,2404:6800:4004:80c::,0,0
+10,128,1,2404:6800:4004:80c::101f,80,80
 NSLIST
 2,1.2.3.33
 10,2404:6800:4004:80c::33
@@ -58,6 +59,36 @@ def test_rewrite_etc_hosts(tmpdir):
     assert orig_hosts.computehash() == new_hosts.computehash()
 
 
+def test_subnet_weight():
+    subnets = [
+        (socket.AF_INET, 16, 0, '192.168.0.0', 0, 0),
+        (socket.AF_INET, 24, 0, '192.168.69.0', 0, 0),
+        (socket.AF_INET, 32, 0, '192.168.69.70', 0, 0),
+        (socket.AF_INET, 32, 1, '192.168.69.70', 0, 0),
+        (socket.AF_INET, 32, 1, '192.168.69.70', 80, 80),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 0, 0),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 8000, 9000),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 8000, 8500),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 8000, 8000),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 400, 450)
+    ]
+    subnets_sorted = [
+        (socket.AF_INET, 32, 1, '192.168.69.70', 80, 80),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 8000, 8000),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 400, 450),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 8000, 8500),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 8000, 9000),
+        (socket.AF_INET, 32, 1, '192.168.69.70', 0, 0),
+        (socket.AF_INET, 32, 0, '192.168.69.70', 0, 0),
+        (socket.AF_INET, 24, 0, '192.168.69.0', 0, 0),
+        (socket.AF_INET, 16, 0, '192.168.0.0', 0, 0),
+        (socket.AF_INET, 0, 1, '0.0.0.0', 0, 0)
+    ]
+    
+    assert subnets_sorted == \
+            sorted(subnets, key=sshuttle.firewall.subnet_weight, reverse=True)
+
+
 @patch('sshuttle.firewall.rewrite_etc_hosts')
 @patch('sshuttle.firewall.setup_daemon')
 @patch('sshuttle.firewall.get_method')
@@ -88,14 +119,15 @@ def test_main(mock_get_method, mock_setup_daemon, mock_rewrite_etc_hosts):
             1024, 1026,
             [(10, u'2404:6800:4004:80c::33')],
             10,
-            [(10, 64, False, u'2404:6800:4004:80c::'),
-                (10, 128, True, u'2404:6800:4004:80c::101f')],
+            [(10, 64, False, u'2404:6800:4004:80c::', 0, 0),
+                (10, 128, True, u'2404:6800:4004:80c::101f', 80, 80)],
             True),
         call().setup_firewall(
             1025, 1027,
             [(2, u'1.2.3.33')],
             2,
-            [(2, 24, False, u'1.2.3.0'), (2, 32, True, u'1.2.3.66')],
+            [(2, 24, False, u'1.2.3.0', 8000, 9000),
+                (2, 32, True, u'1.2.3.66', 8080, 8080)],
             True),
         call().restore_firewall(1024, 10, True),
         call().restore_firewall(1025, 2, True),

@@ -1,4 +1,3 @@
-import socket
 import errno
 import re
 import signal
@@ -9,12 +8,27 @@ import os
 import sshuttle.ssnet as ssnet
 import sshuttle.ssh as ssh
 import sshuttle.ssyslog as ssyslog
+import sshuttle.sdnotify as sdnotify
 import sys
 import platform
 from sshuttle.ssnet import SockWrapper, Handler, Proxy, Mux, MuxWrapper
 from sshuttle.helpers import log, debug1, debug2, debug3, Fatal, islocal, \
     resolvconf_nameservers
 from sshuttle.methods import get_method, Features
+
+try:
+    # try getting recvmsg from python
+    import socket as pythonsocket
+    getattr(pythonsocket.socket, "recvmsg")
+    socket = pythonsocket
+except AttributeError:
+    # try getting recvmsg from socket_ext library
+    try:
+        import socket_ext
+        getattr(socket_ext.socket, "recvmsg")
+        socket = socket_ext
+    except ImportError:
+        import socket
 
 _extra_fd = os.open('/dev/null', os.O_RDONLY)
 
@@ -241,12 +255,13 @@ class FirewallClient:
 
     def start(self):
         self.pfile.write(b'ROUTES\n')
-        for (family, ip, width) in self.subnets_include + self.auto_nets:
-            self.pfile.write(b'%d,%d,0,%s\n'
-                             % (family, width, ip.encode("ASCII")))
-        for (family, ip, width) in self.subnets_exclude:
-            self.pfile.write(b'%d,%d,1,%s\n'
-                             % (family, width, ip.encode("ASCII")))
+        for (family, ip, width, fport, lport) \
+                in self.subnets_include + self.auto_nets:
+            self.pfile.write(b'%d,%d,0,%s,%d,%d\n'
+                    % (family, width, ip.encode("ASCII"), fport, lport))
+        for (family, ip, width, fport, lport) in self.subnets_exclude:
+            self.pfile.write(b'%d,%d,1,%s,%d,%d\n'
+                    % (family, width, ip.encode("ASCII"), fport, lport))
 
         self.pfile.write(b'NSLIST\n')
         for (family, ip) in self.nslist:
@@ -470,7 +485,7 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
                     debug2("Ignored auto net %d/%s/%d\n" % (family, ip, width))
                 else:
                     debug2("Adding auto net %d/%s/%d\n" % (family, ip, width))
-                    fw.auto_nets.append((family, ip, width))
+                    fw.auto_nets.append((family, ip, width, 0, 0))
 
         # we definitely want to do this *after* starting ssh, or we might end
         # up intercepting the ssh connection!
@@ -502,6 +517,9 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
     if seed_hosts is not None:
         debug1('seed_hosts: %r\n' % seed_hosts)
         mux.send(0, ssnet.CMD_HOST_REQ, str.encode('\n'.join(seed_hosts)))
+
+    sdnotify.send(sdnotify.ready(),
+                  sdnotify.status('Connected to %s.' % remotename))
 
     while 1:
         rv = serverproc.poll()
@@ -574,11 +592,11 @@ def main(listenip_v6, listenip_v4,
 
     if required.ipv4 and \
             not any(listenip_v4[0] == sex[1] for sex in subnets_v4):
-        subnets_exclude.append((socket.AF_INET, listenip_v4[0], 32))
+        subnets_exclude.append((socket.AF_INET, listenip_v4[0], 32, 0, 0))
 
     if required.ipv6 and \
             not any(listenip_v6[0] == sex[1] for sex in subnets_v6):
-        subnets_exclude.append((socket.AF_INET6, listenip_v6[0], 128))
+        subnets_exclude.append((socket.AF_INET6, listenip_v6[0], 128, 0, 0))
 
     if listenip_v6 and listenip_v6[1] and listenip_v4 and listenip_v4[1]:
         # if both ports given, no need to search for a spare port

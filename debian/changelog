@@ -1,3 +1,11 @@
+sshuttle (0.78.3-1) unstable; urgency=medium
+
+  * New upstream version.
+  * Set standards version to 4.0.0.
+  * Update debhelper compat version to 9.
+
+ -- Brian May <bam@debian.org>  Sun, 09 Jul 2017 09:29:39 +1000
+
 sshuttle (0.78.1-1) unstable; urgency=medium
 
   * New upstream version.

@@ -12,7 +12,6 @@ setup.py
 tox.ini
 docs/Makefile
 docs/changes.rst
-docs/conf.orig.py
 docs/conf.py
 docs/how-it-works.rst
 docs/index.rst
@@ -37,6 +36,7 @@ sshuttle/helpers.py
 sshuttle/hostwatch.py
 sshuttle/linux.py
 sshuttle/options.py
+sshuttle/sdnotify.py
 sshuttle/server.py
 sshuttle/ssh.py
 sshuttle/ssnet.py
@@ -49,6 +49,7 @@ sshuttle.egg-info/dependency_links.txt
 sshuttle.egg-info/entry_points.txt
 sshuttle.egg-info/top_level.txt
 sshuttle/methods/__init__.py
+sshuttle/methods/ipfw.py
 sshuttle/methods/nat.py
 sshuttle/methods/pf.py
 sshuttle/methods/tproxy.py
@@ -57,4 +58,6 @@ sshuttle/tests/client/test_helpers.py
 sshuttle/tests/client/test_methods_nat.py
 sshuttle/tests/client/test_methods_pf.py
 sshuttle/tests/client/test_methods_tproxy.py
+sshuttle/tests/client/test_options.py
+sshuttle/tests/client/test_sdnotify.py
 sshuttle/tests/server/test_server.py

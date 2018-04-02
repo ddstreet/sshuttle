@@ -61,23 +61,27 @@ def read_host_cache():
         words = line.strip().split(',')
         if len(words) == 2:
             (name, ip) = words
-            name = re.sub(r'[^-\w]', '-', name).strip()
+            name = re.sub(r'[^-\w\.]', '-', name).strip()
             ip = re.sub(r'[^0-9.]', '', ip).strip()
             if name and ip:
                 found_host(name, ip)
 
 
-def found_host(hostname, ip):
-    hostname = re.sub(r'\..*', '', hostname)
-    hostname = re.sub(r'[^-\w]', '_', hostname)
+def found_host(name, ip):
+    hostname = re.sub(r'\..*', '', name)
+    hostname = re.sub(r'[^-\w\.]', '_', hostname)
     if (ip.startswith('127.') or ip.startswith('255.') or
             hostname == 'localhost'):
         return
-    oldip = hostnames.get(hostname)
+
+    if hostname != name:
+        found_host(hostname, ip)
+
+    oldip = hostnames.get(name)
     if oldip != ip:
-        hostnames[hostname] = ip
-        debug1('Found: %s: %s\n' % (hostname, ip))
-        sys.stdout.write('%s,%s\n' % (hostname, ip))
+        hostnames[name] = ip
+        debug1('Found: %s: %s\n' % (name, ip))
+        sys.stdout.write('%s,%s\n' % (name, ip))
         write_host_cache()
 
 
@@ -247,7 +251,7 @@ def _enqueue(op, *args):
 
 
 def _stdin_still_ok(timeout):
-    r, w, x = select.select([sys.stdin.fileno()], [], [], timeout)
+    r, _, _ = select.select([sys.stdin.fileno()], [], [], timeout)
     if r:
         b = os.read(sys.stdin.fileno(), 4096)
         if not b:

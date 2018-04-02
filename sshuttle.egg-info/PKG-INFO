@@ -1,11 +1,11 @@
 Metadata-Version: 1.1
 Name: sshuttle
-Version: 0.78.3
+Version: 0.78.4
 Summary: Full-featured" VPN over an SSH tunnel
 Home-page: https://github.com/sshuttle/sshuttle
 Author: Brian May
 Author-email: brian@linuxpenguins.xyz
-License: GPL2+
+License: LGPL2.1+
 Description: sshuttle: where transparent proxy meets VPN meets ssh
         =====================================================
         
@@ -48,6 +48,7 @@ Description: sshuttle: where transparent proxy meets VPN meets ssh
         - Clone::
         
               git clone https://github.com/sshuttle/sshuttle.git
+              cd sshuttle
               sudo ./setup.py install
         
         It is also possible to install into a virtualenv as a non-root user.
@@ -63,7 +64,13 @@ Description: sshuttle: where transparent proxy meets VPN meets ssh
               virtualenv -p python3 /tmp/sshuttle
               . /tmp/sshuttle/bin/activate
               git clone https://github.com/sshuttle/sshuttle.git
+              cd sshuttle
               ./setup.py install
+        
+        - Homebrew::
+        
+              brew install sshuttle
+        
         
         Documentation
         -------------
@@ -78,7 +85,7 @@ Platform: UNKNOWN
 Classifier: Development Status :: 5 - Production/Stable
 Classifier: Intended Audience :: Developers
 Classifier: Intended Audience :: End Users/Desktop
-Classifier: License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)
+Classifier: License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)
 Classifier: Operating System :: OS Independent
 Classifier: Programming Language :: Python :: 2.7
 Classifier: Programming Language :: Python :: 3.5

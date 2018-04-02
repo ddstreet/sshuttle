@@ -13,9 +13,9 @@ def parse_subnetport_file(s):
 
     raw_config_lines = handle.readlines()
     subnets = []
-    for line_no, line in enumerate(raw_config_lines):
+    for _, line in enumerate(raw_config_lines):
         line = line.strip()
-        if len(line) == 0:
+        if not line:
             continue
         if line[0] == '#':
             continue
@@ -81,8 +81,8 @@ def parse_ipport(s):
     return (family,) + addr[:2]
 
 
-def parse_list(list):
-    return re.split(r'[\s,]+', list.strip()) if list else []
+def parse_list(lst):
+    return re.split(r'[\s,]+', lst.strip()) if lst else []
 
 
 class Concat(Action):
@@ -98,7 +98,8 @@ class Concat(Action):
 
 parser = ArgumentParser(
     prog="sshuttle",
-    usage="%(prog)s [-l [ip:]port] [-r [user@]sshserver[:port]] <subnets...>"
+    usage="%(prog)s [-l [ip:]port] [-r [user@]sshserver[:port]] <subnets...>",
+    fromfile_prefix_chars="@"
 )
 parser.add_argument(
     "subnets",
@@ -120,7 +121,8 @@ parser.add_argument(
     "-H", "--auto-hosts",
     action="store_true",
     help="""
-    continuously scan for remote hostnames and update local /etc/hosts as they are found
+    continuously scan for remote hostnames and update local /etc/hosts as
+    they are found
     """
 )
 parser.add_argument(
@@ -147,8 +149,18 @@ parser.add_argument(
     """
 )
 parser.add_argument(
+    "--to-ns",
+    metavar="IP[:PORT]",
+    type=parse_ipport,
+    help="""
+    the DNS server to forward requests to; defaults to servers in
+    /etc/resolv.conf on remote side if not given.
+    """
+)
+
+parser.add_argument(
     "--method",
-    choices=["auto", "nat", "tproxy", "pf", "ipfw"],
+    choices=["auto", "nat", "nft", "tproxy", "pf", "ipfw"],
     metavar="TYPE",
     default="auto",
     help="""
@@ -218,7 +230,8 @@ parser.add_argument(
     metavar="HOSTNAME[,HOSTNAME]",
     default=[],
     help="""
-    comma-separated list of hostnames for initial scan (may be used with or without --auto-hosts)
+    comma-separated list of hostnames for initial scan (may be used with
+    or without --auto-hosts)
     """
 )
 parser.add_argument(
@@ -275,6 +288,12 @@ parser.add_argument(
     default="./sshuttle.pid",
     help="""
     pidfile name (only if using --daemon) [%(default)s]
+    """
+)
+parser.add_argument(
+    "--user",
+    help="""
+    apply all the rules only to this linux user
     """
 )
 parser.add_argument(

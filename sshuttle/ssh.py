@@ -69,7 +69,7 @@ def connect(ssh_cmd, rhostport, python, stderr, options):
             rhost = result[0].strip('[')
             if len(result) > 1:
                 result[1] = result[1].strip(':')
-                if result[1] is not '':
+                if result[1] != '':
                     portl = ['-p', str(int(result[1]))]
         # can't disambiguate IPv6 colons and a port number. pass the hostname
         # through.
@@ -116,7 +116,7 @@ def connect(ssh_cmd, rhostport, python, stderr, options):
         if python:
             pycmd = "'%s' -c '%s'" % (python, pyscript)
         else:
-            pycmd = ("P=python3.5; $P -V 2>/dev/null || P=python; "
+            pycmd = ("P=python3; $P -V 2>/dev/null || P=python; "
                      "exec \"$P\" -c %s") % quote(pyscript)
             pycmd = ("exec /bin/sh -c %s" % quote(pycmd))
         argv = (sshl +

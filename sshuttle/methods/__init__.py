@@ -35,17 +35,21 @@ class BaseMethod(object):
     def set_firewall(self, firewall):
         self.firewall = firewall
 
-    def get_supported_features(self):
+    @staticmethod
+    def get_supported_features():
         result = Features()
         result.ipv6 = False
         result.udp = False
         result.dns = True
+        result.user = False
         return result
 
-    def get_tcp_dstip(self, sock):
+    @staticmethod
+    def get_tcp_dstip(sock):
         return original_dst(sock)
 
-    def recv_udp(self, udp_listener, bufsize):
+    @staticmethod
+    def recv_udp(udp_listener, bufsize):
         debug3('Accept UDP using recvfrom.\n')
         data, srcip = udp_listener.recvfrom(bufsize)
         return (srcip, None, data)
@@ -64,19 +68,21 @@ class BaseMethod(object):
 
     def assert_features(self, features):
         avail = self.get_supported_features()
-        for key in ["udp", "dns", "ipv6"]:
+        for key in ["udp", "dns", "ipv6", "user"]:
             if getattr(features, key) and not getattr(avail, key):
                 raise Fatal(
                     "Feature %s not supported with method %s.\n" %
                     (key, self.name))
 
-    def setup_firewall(self, port, dnsport, nslist, family, subnets, udp):
+    def setup_firewall(self, port, dnsport, nslist, family, subnets, udp,
+                       user):
         raise NotImplementedError()
 
-    def restore_firewall(self, port, family, udp):
+    def restore_firewall(self, port, family, udp, user):
         raise NotImplementedError()
 
-    def firewall_command(self, line):
+    @staticmethod
+    def firewall_command(line):
         return False
 
 
@@ -96,12 +102,14 @@ def get_method(method_name):
 def get_auto_method():
     if _program_exists('iptables'):
         method_name = "nat"
+    elif _program_exists('nft'):
+        method_name = "nft"
     elif _program_exists('pfctl'):
         method_name = "pf"
     elif _program_exists('ipfw'):
         method_name = "ipfw"
     else:
         raise Fatal(
-            "can't find either iptables or pfctl; check your PATH")
+            "can't find either iptables, nft or pfctl; check your PATH")
 
     return get_method(method_name)

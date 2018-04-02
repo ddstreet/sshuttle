@@ -8,13 +8,16 @@ import os
 import sshuttle.ssnet as ssnet
 import sshuttle.ssh as ssh
 import sshuttle.ssyslog as ssyslog
-import sshuttle.sdnotify as sdnotify
 import sys
 import platform
 from sshuttle.ssnet import SockWrapper, Handler, Proxy, Mux, MuxWrapper
 from sshuttle.helpers import log, debug1, debug2, debug3, Fatal, islocal, \
     resolvconf_nameservers
 from sshuttle.methods import get_method, Features
+try:
+    from pwd import getpwnam
+except ImportError:
+    getpwnam = None
 
 try:
     # try getting recvmsg from python
@@ -108,8 +111,8 @@ def daemon_cleanup():
 
 class MultiListener:
 
-    def __init__(self, type=socket.SOCK_STREAM, proto=0):
-        self.type = type
+    def __init__(self, kind=socket.SOCK_STREAM, proto=0):
+        self.type = kind
         self.proto = proto
         self.v6 = None
         self.v4 = None
@@ -157,13 +160,11 @@ class MultiListener:
         self.bind_called = True
         if address_v6 is not None:
             self.v6 = socket.socket(socket.AF_INET6, self.type, self.proto)
-            self.v6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.v6.bind(address_v6)
         else:
             self.v6 = None
         if address_v4 is not None:
             self.v4 = socket.socket(socket.AF_INET, self.type, self.proto)
-            self.v4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.v4.bind(address_v4)
         else:
             self.v4 = None
@@ -192,8 +193,8 @@ class FirewallClient:
         if ssyslog._p:
             argvbase += ['--syslog']
         argv_tries = [
-            ['sudo', '-p', '[local sudo] Password: ',
-                ('PYTHONPATH=%s' % python_path), '--'] + argvbase,
+            ['sudo', '-p', '[local sudo] Password: ', '/usr/bin/env',
+                ('PYTHONPATH=%s' % python_path)] + argvbase,
             argvbase
         ]
 
@@ -238,7 +239,8 @@ class FirewallClient:
         self.method.set_firewall(self)
 
     def setup(self, subnets_include, subnets_exclude, nslist,
-              redirectport_v6, redirectport_v4, dnsport_v6, dnsport_v4, udp):
+              redirectport_v6, redirectport_v4, dnsport_v6, dnsport_v4, udp,
+              user):
         self.subnets_include = subnets_include
         self.subnets_exclude = subnets_exclude
         self.nslist = nslist
@@ -247,6 +249,7 @@ class FirewallClient:
         self.dnsport_v6 = dnsport_v6
         self.dnsport_v4 = dnsport_v4
         self.udp = udp
+        self.user = user
 
     def check(self):
         rv = self.p.poll()
@@ -276,8 +279,14 @@ class FirewallClient:
         udp = 0
         if self.udp:
             udp = 1
+        if self.user is None:
+            user = b'-'
+        elif isinstance(self.user, str):
+            user = bytes(self.user, 'utf-8')
+        else:
+            user = b'%d' % self.user
 
-        self.pfile.write(b'GO %d\n' % udp)
+        self.pfile.write(b'GO %d %s\n' % (udp, user))
         self.pfile.flush()
 
         line = self.pfile.readline()
@@ -286,7 +295,7 @@ class FirewallClient:
             raise Fatal('%r expected STARTED, got %r' % (self.argv, line))
 
     def sethostip(self, hostname, ip):
-        assert(not re.search(b'[^-\w]', hostname))
+        assert(not re.search(b'[^-\w\.]', hostname))
         assert(not re.search(b'[^0-9.]', ip))
         self.pfile.write(b'HOST %s,%s\n' % (hostname, ip))
         self.pfile.flush()
@@ -377,7 +386,7 @@ def onaccept_udp(listener, method, mux, handlers):
     srcip, dstip, data = t
     debug1('Accept UDP: %r -> %r.\n' % (srcip, dstip,))
     if srcip in udp_by_src:
-        chan, timeout = udp_by_src[srcip]
+        chan, _ = udp_by_src[srcip]
     else:
         chan = mux.next_channel()
         mux.channels[chan] = lambda cmd, data: udp_done(
@@ -415,7 +424,8 @@ def ondns(listener, method, mux, handlers):
 
 def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
           python, latency_control,
-          dns_listener, seed_hosts, auto_hosts, auto_nets, daemon):
+          dns_listener, seed_hosts, auto_hosts, auto_nets, daemon,
+          to_nameserver):
 
     debug1('Starting client with Python version %s\n'
            % platform.python_version())
@@ -434,7 +444,8 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
             ssh_cmd, remotename, python,
             stderr=ssyslog._p and ssyslog._p.stdin,
             options=dict(latency_control=latency_control,
-                auto_hosts=auto_hosts))
+                         auto_hosts=auto_hosts,
+                         to_nameserver=to_nameserver))
     except socket.error as e:
         if e.args[0] == errno.EPIPE:
             raise Fatal("failed to establish ssh session (1)")
@@ -475,6 +486,7 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
     def onroutes(routestr):
         if auto_nets:
             for line in routestr.strip().split(b'\n'):
+                if not line: continue
                 (family, ip, width) = line.split(b',', 2)
                 family = int(family)
                 width = int(width)
@@ -518,9 +530,6 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
         debug1('seed_hosts: %r\n' % seed_hosts)
         mux.send(0, ssnet.CMD_HOST_REQ, str.encode('\n'.join(seed_hosts)))
 
-    sdnotify.send(sdnotify.ready(),
-                  sdnotify.status('Connected to %s.' % remotename))
-
     while 1:
         rv = serverproc.poll()
         if rv:
@@ -534,7 +543,8 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
 def main(listenip_v6, listenip_v4,
          ssh_cmd, remotename, python, latency_control, dns, nslist,
          method_name, seed_hosts, auto_hosts, auto_nets,
-         subnets_include, subnets_exclude, daemon, pidfile):
+         subnets_include, subnets_exclude, daemon, to_nameserver, pidfile,
+         user):
 
     if daemon:
         try:
@@ -549,6 +559,11 @@ def main(listenip_v6, listenip_v4,
     # Get family specific subnet lists
     if dns:
         nslist += resolvconf_nameservers()
+        if to_nameserver is not None:
+            to_nameserver = "%s@%s" % tuple(to_nameserver[1:])
+    else:
+        # option doesn't make sense if we aren't proxying dns
+        to_nameserver = None
 
     subnets = subnets_include + subnets_exclude  # we don't care here
     subnets_v6 = [i for i in subnets if i[0] == socket.AF_INET6]
@@ -566,10 +581,19 @@ def main(listenip_v6, listenip_v4,
         else:
             listenip_v6 = None
 
+    if user is not None:
+        if getpwnam is None:
+            raise Fatal("Routing by user not available on this system.")
+        try:
+            user = getpwnam(user).pw_uid
+        except KeyError:
+            raise Fatal("User %s does not exist." % user)
+
     required.ipv6 = len(subnets_v6) > 0 or listenip_v6 is not None
     required.ipv4 = len(subnets_v4) > 0 or listenip_v4 is not None
     required.udp = avail.udp
     required.dns = len(nslist) > 0
+    required.user = False if user is None else True
 
     # if IPv6 not supported, ignore IPv6 DNS servers
     if not required.ipv6:
@@ -585,6 +609,7 @@ def main(listenip_v6, listenip_v4,
     debug1("IPv6 enabled: %r\n" % required.ipv6)
     debug1("UDP enabled: %r\n" % required.udp)
     debug1("DNS enabled: %r\n" % required.dns)
+    debug1("User enabled: %r\n" % required.user)
 
     # bind to required ports
     if listenip_v4 == "auto":
@@ -604,6 +629,9 @@ def main(listenip_v6, listenip_v4,
     else:
         # if at least one port missing, we have to search
         ports = range(12300, 9000, -1)
+        # keep track of failed bindings and used ports to avoid trying to
+        # bind to the same socket address twice in different listeners
+        used_ports = []
 
     # search for free ports and try to bind
     last_e = None
@@ -645,10 +673,12 @@ def main(listenip_v6, listenip_v4,
             if udp_listener:
                 udp_listener.bind(lv6, lv4)
             bound = True
+            used_ports.append(port)
             break
         except socket.error as e:
             if e.errno == errno.EADDRINUSE:
                 last_e = e
+                used_ports.append(port)
             else:
                 raise e
 
@@ -668,6 +698,8 @@ def main(listenip_v6, listenip_v4,
         ports = range(12300, 9000, -1)
         for port in ports:
             debug2(' %d' % port)
+            if port in used_ports: continue
+
             dns_listener = MultiListener(socket.SOCK_DGRAM)
 
             if listenip_v6:
@@ -687,10 +719,12 @@ def main(listenip_v6, listenip_v4,
             try:
                 dns_listener.bind(lv6, lv4)
                 bound = True
+                used_ports.append(port)
                 break
             except socket.error as e:
                 if e.errno == errno.EADDRINUSE:
                     last_e = e
+                    used_ports.append(port)
                 else:
                     raise e
         debug2('\n')
@@ -706,22 +740,22 @@ def main(listenip_v6, listenip_v4,
     # Last minute sanity checks.
     # These should never fail.
     # If these do fail, something is broken above.
-    if len(subnets_v6) > 0:
+    if subnets_v6:
         assert required.ipv6
         if redirectport_v6 == 0:
             raise Fatal("IPv6 subnets defined but not listening")
 
-    if len(nslist_v6) > 0:
+    if nslist_v6:
         assert required.dns
         assert required.ipv6
         if dnsport_v6 == 0:
             raise Fatal("IPv6 ns servers defined but not listening")
 
-    if len(subnets_v4) > 0:
+    if subnets_v4:
         if redirectport_v4 == 0:
             raise Fatal("IPv4 subnets defined but not listening")
 
-    if len(nslist_v4) > 0:
+    if nslist_v4:
         if dnsport_v4 == 0:
             raise Fatal("IPv4 ns servers defined but not listening")
 
@@ -735,13 +769,13 @@ def main(listenip_v6, listenip_v4,
     # start the firewall
     fw.setup(subnets_include, subnets_exclude, nslist,
              redirectport_v6, redirectport_v4, dnsport_v6, dnsport_v4,
-             required.udp)
+             required.udp, user)
 
     # start the client process
     try:
         return _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
                      python, latency_control, dns_listener,
-                     seed_hosts, auto_hosts, auto_nets, daemon)
+                     seed_hosts, auto_hosts, auto_nets, daemon, to_nameserver)
     finally:
         try:
             if daemon:

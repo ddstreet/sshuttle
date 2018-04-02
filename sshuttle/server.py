@@ -160,7 +160,7 @@ class Hostwatch:
 
 class DnsProxy(Handler):
 
-    def __init__(self, mux, chan, request):
+    def __init__(self, mux, chan, request, to_nameserver):
         Handler.__init__(self, [])
         self.timeout = time.time() + 30
         self.mux = mux
@@ -168,22 +168,43 @@ class DnsProxy(Handler):
         self.tries = 0
         self.request = request
         self.peers = {}
+        self.to_ns_peer = None
+        self.to_ns_port = None
+        if to_nameserver is None:
+            self.to_nameserver = None
+        else:
+            self.to_ns_peer, self.to_ns_port = to_nameserver.split("@")
+            self.to_nameserver = self._addrinfo(self.to_ns_peer,
+                                                self.to_ns_port)
         self.try_send()
+
+    @staticmethod
+    def _addrinfo(peer, port):
+        if int(port) == 0:
+            port = 53
+        family, _, _, _, sockaddr = socket.getaddrinfo(peer, port)[0]
+        return (family, sockaddr)
 
     def try_send(self):
         if self.tries >= 3:
             return
         self.tries += 1
 
-        family, peer = resolvconf_random_nameserver()
+        if self.to_nameserver is None:
+            _, peer = resolvconf_random_nameserver()
+            port = 53
+        else:
+            peer = self.to_ns_peer
+            port = int(self.to_ns_port)
 
+        family, sockaddr = self._addrinfo(peer, port)
         sock = socket.socket(family, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_IP, socket.IP_TTL, 42)
-        sock.connect((peer, 53))
+        sock.connect(sockaddr)
 
         self.peers[sock] = peer
 
-        debug2('DNS: sending to %r (try %d)\n' % (peer, self.tries))
+        debug2('DNS: sending to %r:%d (try %d)\n' % (peer, port, self.tries))
         try:
             sock.send(self.request)
             self.socks.append(sock)
@@ -258,7 +279,7 @@ class UdpProxy(Handler):
         self.mux.send(self.chan, ssnet.CMD_UDP_DATA, hdr + data)
 
 
-def main(latency_control, auto_hosts):
+def main(latency_control, auto_hosts, to_nameserver):
     debug1('Starting server with Python version %s\n'
            % platform.python_version())
 
@@ -309,7 +330,7 @@ def main(latency_control, auto_hosts):
     def got_host_req(data):
         if not hw.pid:
             (hw.pid, hw.sock) = start_hostwatch(
-                    data.strip().split(), auto_hosts)
+                    data.decode("ASCII").strip().split(), auto_hosts)
             handlers.append(Handler(socks=[hw.sock],
                                     callback=hostwatch_ready))
     mux.got_host_req = got_host_req
@@ -332,7 +353,7 @@ def main(latency_control, auto_hosts):
 
     def dns_req(channel, data):
         debug2('Incoming DNS request channel=%d.\n' % channel)
-        h = DnsProxy(mux, channel, data)
+        h = DnsProxy(mux, channel, data, to_nameserver)
         handlers.append(h)
         dnshandlers[channel] = h
     mux.got_dns_req = dns_req

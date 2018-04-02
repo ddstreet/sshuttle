@@ -1,3 +1,10 @@
+sshuttle (0.78.4-1) unstable; urgency=medium
+
+  * New upstream version.
+  * Change priority from extra to optional.
+
+ -- Brian May <bam@debian.org>  Mon, 02 Apr 2018 15:23:28 +1000
+
 sshuttle (0.78.3-1) unstable; urgency=medium
 
   * New upstream version.

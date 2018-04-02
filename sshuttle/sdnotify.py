@@ -9,14 +9,14 @@ def _notify(message):
         return False
 
     addr = '\0' + addr[1:] if addr[0] == '@' else addr
-    
+
     try:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     except (OSError, IOError) as e:
         debug1("Error creating socket to notify systemd: %s\n" % e)
         return False
 
-    if not message: 
+    if not message:
         return False
 
     assert isinstance(message, bytes)

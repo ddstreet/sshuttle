@@ -1,10 +1,13 @@
 .gitignore
+.prospector.yml
 .travis.yml
 CHANGES.rst
 LICENSE
 MANIFEST.in
 README.rst
+bandit.yml
 conftest.py
+requirements-tests.txt
 requirements.txt
 run
 setup.cfg
@@ -51,6 +54,7 @@ sshuttle.egg-info/top_level.txt
 sshuttle/methods/__init__.py
 sshuttle/methods/ipfw.py
 sshuttle/methods/nat.py
+sshuttle/methods/nft.py
 sshuttle/methods/pf.py
 sshuttle/methods/tproxy.py
 sshuttle/tests/client/test_firewall.py

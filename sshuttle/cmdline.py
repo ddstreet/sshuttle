@@ -25,7 +25,7 @@ def main():
                 parser.error('exactly zero arguments expected')
             return firewall.main(opt.method, opt.syslog)
         elif opt.hostwatch:
-            return hostwatch.hw_main(opt.subnets)
+            return hostwatch.hw_main(opt.subnets, opt.auto_hosts)
         else:
             includes = opt.subnets + opt.subnets_file
             excludes = opt.exclude
@@ -45,8 +45,8 @@ def main():
             if opt.listen:
                 ipport_v6 = None
                 ipport_v4 = None
-                list = opt.listen.split(",")
-                for ip in list:
+                lst = opt.listen.split(",")
+                for ip in lst:
                     family, ip, port = parse_ipport(ip)
                     if family == socket.AF_INET6:
                         ipport_v6 = (ip, port)
@@ -73,7 +73,10 @@ def main():
                                       opt.auto_nets,
                                       includes,
                                       excludes,
-                                      opt.daemon, opt.pidfile)
+                                      opt.daemon,
+                                      opt.to_ns,
+                                      opt.pidfile,
+                                      opt.user)
 
             if return_code == 0:
                 log('Normal exit code, exiting...')

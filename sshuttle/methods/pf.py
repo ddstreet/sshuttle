@@ -14,7 +14,11 @@ from sshuttle.helpers import debug1, debug2, debug3, Fatal, family_to_string
 from sshuttle.methods import BaseMethod
 
 
-_pf_context = {'started_by_sshuttle': False, 'Xtoken': []}
+_pf_context = {
+    'started_by_sshuttle': 0,
+    'loaded_by_sshuttle': True,
+    'Xtoken': []
+}
 _pf_fd = None
 
 
@@ -31,11 +35,11 @@ class Generic(object):
 
     class pf_addr(Structure):
         class _pfa(Union):
-             _fields_ = [("v4", c_uint32),     # struct in_addr
-                        ("v6", c_uint32 * 4),  # struct in6_addr
-                        ("addr8", c_uint8 * 16),
-                        ("addr16", c_uint16 * 8),
-                        ("addr32", c_uint32 * 4)]
+            _fields_ = [("v4", c_uint32),     # struct in_addr
+                       ("v6", c_uint32 * 4),  # struct in6_addr
+                       ("addr8", c_uint8 * 16),
+                       ("addr16", c_uint16 * 8),
+                       ("addr32", c_uint32 * 4)]
 
         _fields_ = [("pfa", _pfa)]
         _anonymous_ = ("pfa",)
@@ -60,13 +64,14 @@ class Generic(object):
     def enable(self):
         if b'INFO:\nStatus: Disabled' in self.status:
             pfctl('-e')
-            _pf_context['started_by_sshuttle'] = True
+            _pf_context['started_by_sshuttle'] += 1
 
-    def disable(self, anchor):
+    @staticmethod
+    def disable(anchor):
         pfctl('-a %s -F all' % anchor)
-        if _pf_context['started_by_sshuttle']:
+        if _pf_context['started_by_sshuttle'] == 1:
             pfctl('-d')
-            _pf_context['started_by_sshuttle'] = False
+        _pf_context['started_by_sshuttle'] -= 1
 
     def query_nat(self, family, proto, src_ip, src_port, dst_ip, dst_port):
         [proto, family, src_port, dst_port] = [
@@ -94,11 +99,13 @@ class Generic(object):
         port = socket.ntohs(self._get_natlook_port(pnl.rdxport))
         return (ip, port)
 
-    def _add_natlook_ports(self, pnl, src_port, dst_port):
+    @staticmethod
+    def _add_natlook_ports(pnl, src_port, dst_port):
         pnl.sxport = socket.htons(src_port)
         pnl.dxport = socket.htons(dst_port)
 
-    def _get_natlook_port(self, xport):
+    @staticmethod
+    def _get_natlook_port(xport):
         return xport
 
     def add_anchors(self, anchor, status=None):
@@ -108,35 +115,39 @@ class Generic(object):
         if ('\nanchor "%s"' % anchor).encode('ASCII') not in status:
             self._add_anchor_rule(self.PF_PASS, anchor.encode('ASCII'))
 
-    def _add_anchor_rule(self, type, name, pr=None):
+    def _add_anchor_rule(self, kind, name, pr=None):
         if pr is None:
             pr = self.pfioc_rule()
 
         memmove(addressof(pr) + self.ANCHOR_CALL_OFFSET, name,
-                min(self.MAXPATHLEN, len(name)))  # anchor_call = name
+                min(self.MAXPATHLEN, len(name))) # anchor_call = name
         memmove(addressof(pr) + self.RULE_ACTION_OFFSET,
-                struct.pack('I', type), 4)  # rule.action = type
+                struct.pack('I', kind), 4) # rule.action = kind
 
         memmove(addressof(pr) + self.ACTION_OFFSET, struct.pack(
-            'I', self.PF_CHANGE_GET_TICKET), 4)  # action = PF_CHANGE_GET_TICKET
+            'I', self.PF_CHANGE_GET_TICKET), 4) # action = PF_CHANGE_GET_TICKET
         ioctl(pf_get_dev(), pf.DIOCCHANGERULE, pr)
 
         memmove(addressof(pr) + self.ACTION_OFFSET, struct.pack(
-            'I', self.PF_CHANGE_ADD_TAIL), 4)  # action = PF_CHANGE_ADD_TAIL
+            'I', self.PF_CHANGE_ADD_TAIL), 4) # action = PF_CHANGE_ADD_TAIL
         ioctl(pf_get_dev(), pf.DIOCCHANGERULE, pr)
 
-    def _inet_version(self, family):
+    @staticmethod
+    def _inet_version(family):
         return b'inet' if family == socket.AF_INET else b'inet6'
 
-    def _lo_addr(self, family):
+    @staticmethod
+    def _lo_addr(family):
         return b'127.0.0.1' if family == socket.AF_INET else b'::1'
 
-    def add_rules(self, anchor, rules):
+    @staticmethod
+    def add_rules(anchor, rules):
         assert isinstance(rules, bytes)
         debug3("rules:\n" + rules.decode("ASCII"))
         pfctl('-a %s -f /dev/stdin' % anchor, rules)
 
-    def has_skip_loopback(self):
+    @staticmethod
+    def has_skip_loopback():
         return b'skip' in pfctl('-s Interfaces -i lo -v')[0]
 
 
@@ -165,8 +176,17 @@ class FreeBsd(Generic):
         freebsd.pfioc_natlook = pfioc_natlook
         return freebsd
 
-    def __init__(self):
-        super(FreeBsd, self).__init__()
+    def enable(self):
+        returncode = ssubprocess.call(['kldload', 'pf'])
+        super(FreeBsd, self).enable()
+        if returncode == 0:
+            _pf_context['loaded_by_sshuttle'] = True
+
+    def disable(self, anchor):
+        super(FreeBsd, self).disable(anchor)
+        if _pf_context['loaded_by_sshuttle'] and \
+                _pf_context['started_by_sshuttle'] == 0:
+            ssubprocess.call(['kldunload', 'pf'])
 
     def add_anchors(self, anchor):
         status = pfctl('-s all')[0]
@@ -174,14 +194,14 @@ class FreeBsd(Generic):
             self._add_anchor_rule(self.PF_RDR, anchor.encode('ASCII'))
         super(FreeBsd, self).add_anchors(anchor, status=status)
 
-    def _add_anchor_rule(self, type, name):
-        pr = self.pfioc_rule()
+    def _add_anchor_rule(self, kind, name, pr=None):
+        pr = pr or self.pfioc_rule()
         ppa = self.pfioc_pooladdr()
 
         ioctl(pf_get_dev(), self.DIOCBEGINADDRS, ppa)
         # pool ticket
         memmove(addressof(pr) + self.POOL_TICKET_OFFSET, ppa[4:8], 4)
-        super(FreeBsd, self)._add_anchor_rule(type, name, pr=pr)
+        super(FreeBsd, self)._add_anchor_rule(kind, name, pr=pr)
 
     def add_rules(self, anchor, includes, port, dnsport, nslist, family):
         inet_version = self._inet_version(family)
@@ -189,8 +209,8 @@ class FreeBsd(Generic):
 
         tables = []
         translating_rules = [
-            b'rdr pass on lo0 %s proto tcp to %s '
-            b'-> %s port %r' % (inet_version, subnet, lo_addr, port)
+            b'rdr pass on lo0 %s proto tcp from ! %s to %s '
+            b'-> %s port %r' % (inet_version, lo_addr, subnet, lo_addr, port)
             for exclude, subnet in includes if not exclude
         ]
         filtering_rules = [
@@ -201,7 +221,7 @@ class FreeBsd(Generic):
             for exclude, subnet in includes
         ]
 
-        if len(nslist) > 0:
+        if nslist:
             tables.append(
                 b'table <dns_servers> {%s}' %
                 b','.join([ns[1].encode("ASCII") for ns in nslist]))
@@ -271,7 +291,7 @@ class OpenBsd(Generic):
             for exclude, subnet in includes
         ]
 
-        if len(nslist) > 0:
+        if nslist:
             tables.append(
                 b'table <dns_servers> {%s}' %
                 b','.join([ns[1].encode("ASCII") for ns in nslist]))
@@ -417,11 +437,8 @@ class Method(BaseMethod):
 
         return sock.getsockname()
 
-    def setup_firewall(self, port, dnsport, nslist, family, subnets, udp):
-        tables = []
-        translating_rules = []
-        filtering_rules = []
-
+    def setup_firewall(self, port, dnsport, nslist, family, subnets, udp,
+                       user):
         if family not in [socket.AF_INET, socket.AF_INET6]:
             raise Exception(
                 'Address family "%s" unsupported by pf method_name'
@@ -429,12 +446,12 @@ class Method(BaseMethod):
         if udp:
             raise Exception("UDP not supported by pf method_name")
 
-        if len(subnets) > 0:
+        if subnets:
             includes = []
             # If a given subnet is both included and excluded, list the
             # exclusion first; the table will ignore the second, opposite
             # definition
-            for f, swidth, sexclude, snet, fport, lport \
+            for _, swidth, sexclude, snet, fport, lport \
                     in sorted(subnets, key=subnet_weight, reverse=True):
                 includes.append((sexclude, b"%s/%d%s" % (
                     snet.encode("ASCII"),
@@ -446,7 +463,7 @@ class Method(BaseMethod):
         pf.add_rules(anchor, includes, port, dnsport, nslist, family)
         pf.enable()
 
-    def restore_firewall(self, port, family, udp):
+    def restore_firewall(self, port, family, udp, user):
         if family not in [socket.AF_INET, socket.AF_INET6]:
             raise Exception(
                 'Address family "%s" unsupported by pf method_name'

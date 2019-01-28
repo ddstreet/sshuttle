@@ -6,7 +6,6 @@ LICENSE
 MANIFEST.in
 README.rst
 bandit.yml
-conftest.py
 requirements-tests.txt
 requirements.txt
 run
@@ -15,6 +14,7 @@ setup.py
 tox.ini
 docs/Makefile
 docs/changes.rst
+docs/chromeos.rst
 docs/conf.py
 docs/how-it-works.rst
 docs/index.rst
@@ -57,11 +57,12 @@ sshuttle/methods/nat.py
 sshuttle/methods/nft.py
 sshuttle/methods/pf.py
 sshuttle/methods/tproxy.py
-sshuttle/tests/client/test_firewall.py
-sshuttle/tests/client/test_helpers.py
-sshuttle/tests/client/test_methods_nat.py
-sshuttle/tests/client/test_methods_pf.py
-sshuttle/tests/client/test_methods_tproxy.py
-sshuttle/tests/client/test_options.py
-sshuttle/tests/client/test_sdnotify.py
-sshuttle/tests/server/test_server.py
+tests/conftest.py
+tests/client/test_firewall.py
+tests/client/test_helpers.py
+tests/client/test_methods_nat.py
+tests/client/test_methods_pf.py
+tests/client/test_methods_tproxy.py
+tests/client/test_options.py
+tests/client/test_sdnotify.py
+tests/server/test_server.py

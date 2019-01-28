@@ -8,8 +8,8 @@ export PYBUILD_NAME=sshuttle
 .PHONY: override_dh_sphinxdoc
 override_dh_sphinxdoc:
 #ifeq (,$(findstring nodocs, $(DEB_BUILD_OPTIONS)))
-	PYTHONPATH=. sphinx-build -b html -d docs/.build/.doctrees -N docs debian/sshuttle/usr/share/doc/sshuttle/html
-	PYTHONPATH=. sphinx-build -b man -d docs/.build/.doctrees -N docs debian/sshuttle/usr/share/man/man1
+	PYTHONPATH=. python3 -m sphinx -b html -d docs/.build/.doctrees -N docs debian/sshuttle/usr/share/doc/sshuttle/html
+	PYTHONPATH=. python3 -m sphinx -b man -d docs/.build/.doctrees -N docs debian/sshuttle/usr/share/man/man1
 	dh_sphinxdoc
 #endif
 

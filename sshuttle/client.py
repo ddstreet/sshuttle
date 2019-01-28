@@ -33,7 +33,7 @@ except AttributeError:
     except ImportError:
         import socket
 
-_extra_fd = os.open('/dev/null', os.O_RDONLY)
+_extra_fd = os.open(os.devnull, os.O_RDONLY)
 
 
 def got_signal(signum, frame):
@@ -93,7 +93,7 @@ def daemonize():
     # be deleted.
     signal.signal(signal.SIGTERM, got_signal)
 
-    si = open('/dev/null', 'r+')
+    si = open(os.devnull, 'r+')
     os.dup2(si.fileno(), 0)
     os.dup2(si.fileno(), 1)
     si.close()
@@ -183,7 +183,13 @@ class MultiListener:
 
 class FirewallClient:
 
-    def __init__(self, method_name):
+    def __init__(self, method_name, sudo_pythonpath):
+
+        # Default to sudo unless on OpenBSD in which case use built in `doas`
+        elevbin = 'sudo'
+        if platform.platform().startswith('OpenBSD'):
+            elevbin = 'doas'
+
         self.auto_nets = []
         python_path = os.path.dirname(os.path.dirname(__file__))
         argvbase = ([sys.executable, sys.argv[0]] +
@@ -192,11 +198,13 @@ class FirewallClient:
                     ['--firewall'])
         if ssyslog._p:
             argvbase += ['--syslog']
-        argv_tries = [
-            ['sudo', '-p', '[local sudo] Password: ', '/usr/bin/env',
-                ('PYTHONPATH=%s' % python_path)] + argvbase,
-            argvbase
-        ]
+        elev_prefix = [part % {'eb': elevbin}
+                       for part in ['%(eb)s', '-p',
+                                    '[local %(eb)s] Password: ']]
+        if sudo_pythonpath:
+            elev_prefix += ['/usr/bin/env',
+                            'PYTHONPATH=%s' % python_path]
+        argv_tries = [elev_prefix + argvbase, argvbase]
 
         # we can't use stdin/stdout=subprocess.PIPE here, as we normally would,
         # because stupid Linux 'su' requires that stdin be attached to a tty.
@@ -347,7 +355,7 @@ def onaccept_tcp(listener, method, mux, handlers):
                 sock, srcip = listener.accept()
                 sock.close()
             finally:
-                _extra_fd = os.open('/dev/null', os.O_RDONLY)
+                _extra_fd = os.open(os.devnull, os.O_RDONLY)
             return
         else:
             raise
@@ -445,7 +453,8 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
             stderr=ssyslog._p and ssyslog._p.stdin,
             options=dict(latency_control=latency_control,
                          auto_hosts=auto_hosts,
-                         to_nameserver=to_nameserver))
+                         to_nameserver=to_nameserver,
+                         auto_nets=auto_nets))
     except socket.error as e:
         if e.args[0] == errno.EPIPE:
             raise Fatal("failed to establish ssh session (1)")
@@ -544,7 +553,7 @@ def main(listenip_v6, listenip_v4,
          ssh_cmd, remotename, python, latency_control, dns, nslist,
          method_name, seed_hosts, auto_hosts, auto_nets,
          subnets_include, subnets_exclude, daemon, to_nameserver, pidfile,
-         user):
+         user, sudo_pythonpath):
 
     if daemon:
         try:
@@ -554,7 +563,7 @@ def main(listenip_v6, listenip_v4,
             return 5
     debug1('Starting sshuttle proxy.\n')
 
-    fw = FirewallClient(method_name)
+    fw = FirewallClient(method_name, sudo_pythonpath)
 
     # Get family specific subnet lists
     if dns:

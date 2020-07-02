@@ -1,3 +1,14 @@
+sshuttle (0.78.5-1ubuntu1) focal; urgency=medium
+
+  * d/p/0001-compatibility-with-python38.patch:
+    Backport patch to make sshuttle compatible
+    with python-3.8. (LP: #1873368). Closes: #953621.
+  * d/control: Remove unused Python 2 build
+    dependencies since its source package
+    dropped python2 support. Closes: #943238.
+
+ -- Felipe Reyes <felipe.reyes@canonical.com>  Thu, 02 Jul 2020 12:49:21 -0400
+
 sshuttle (0.78.5-1) unstable; urgency=medium
 
   [ Ondřej Nový ]

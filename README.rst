@@ -23,8 +23,9 @@ common case:
 
 - You can't use openssh's PermitTunnel feature because
   it's disabled by default on openssh servers; plus it does
-  TCP-over-TCP, which has terrible performance (see below).
-
+  TCP-over-TCP, which has `terrible performance`_.
+  
+.. _terrible performance: https://sshuttle.readthedocs.io/en/stable/how-it-works.html
 
 Obtaining sshuttle
 ------------------
@@ -32,6 +33,18 @@ Obtaining sshuttle
 - Debian stretch or later::
 
       apt-get install sshuttle
+      
+- Arch Linux::
+
+      pacman -S sshuttle
+
+- Fedora::
+
+      dnf install sshuttle
+
+- NixOS::
+
+      nix-env -iA nixos.sshuttle
 
 - From PyPI::
 
@@ -42,6 +55,13 @@ Obtaining sshuttle
       git clone https://github.com/sshuttle/sshuttle.git
       cd sshuttle
       sudo ./setup.py install
+
+- FreeBSD::
+
+      # ports
+      cd /usr/ports/net/py-sshuttle && make install clean
+      # pkg
+      pkg install py36-sshuttle
 
 It is also possible to install into a virtualenv as a non-root user.
 
@@ -63,6 +83,10 @@ It is also possible to install into a virtualenv as a non-root user.
 
       brew install sshuttle
 
+- Nix::
+
+      nix-env -iA nixpkgs.sshuttle
+
 
 Documentation
 -------------
@@ -71,3 +95,9 @@ https://sshuttle.readthedocs.org/
 
 The documentation for the latest development version is available at:
 https://sshuttle.readthedocs.org/en/latest/
+
+
+Running as a service
+--------------------
+Sshuttle can also be run as a service and configured using a config management system: 
+https://medium.com/@mike.reider/using-sshuttle-as-a-service-bec2684a65fe

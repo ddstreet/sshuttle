@@ -1,6 +1,6 @@
-Metadata-Version: 1.1
+Metadata-Version: 2.1
 Name: sshuttle
-Version: 0.78.5
+Version: 1.0.3
 Summary: Full-featured" VPN over an SSH tunnel
 Home-page: https://github.com/sshuttle/sshuttle
 Author: Brian May
@@ -31,8 +31,9 @@ Description: sshuttle: where transparent proxy meets VPN meets ssh
         
         - You can't use openssh's PermitTunnel feature because
           it's disabled by default on openssh servers; plus it does
-          TCP-over-TCP, which has terrible performance (see below).
-        
+          TCP-over-TCP, which has `terrible performance`_.
+          
+        .. _terrible performance: https://sshuttle.readthedocs.io/en/stable/how-it-works.html
         
         Obtaining sshuttle
         ------------------
@@ -40,6 +41,18 @@ Description: sshuttle: where transparent proxy meets VPN meets ssh
         - Debian stretch or later::
         
               apt-get install sshuttle
+              
+        - Arch Linux::
+        
+              pacman -S sshuttle
+        
+        - Fedora::
+        
+              dnf install sshuttle
+        
+        - NixOS::
+        
+              nix-env -iA nixos.sshuttle
         
         - From PyPI::
         
@@ -50,6 +63,13 @@ Description: sshuttle: where transparent proxy meets VPN meets ssh
               git clone https://github.com/sshuttle/sshuttle.git
               cd sshuttle
               sudo ./setup.py install
+        
+        - FreeBSD::
+        
+              # ports
+              cd /usr/ports/net/py-sshuttle && make install clean
+              # pkg
+              pkg install py36-sshuttle
         
         It is also possible to install into a virtualenv as a non-root user.
         
@@ -71,6 +91,10 @@ Description: sshuttle: where transparent proxy meets VPN meets ssh
         
               brew install sshuttle
         
+        - Nix::
+        
+              nix-env -iA nixpkgs.sshuttle
+        
         
         Documentation
         -------------
@@ -80,6 +104,12 @@ Description: sshuttle: where transparent proxy meets VPN meets ssh
         The documentation for the latest development version is available at:
         https://sshuttle.readthedocs.org/en/latest/
         
+        
+        Running as a service
+        --------------------
+        Sshuttle can also be run as a service and configured using a config management system: 
+        https://medium.com/@mike.reider/using-sshuttle-as-a-service-bec2684a65fe
+        
 Keywords: ssh vpn
 Platform: UNKNOWN
 Classifier: Development Status :: 5 - Production/Stable
@@ -87,6 +117,10 @@ Classifier: Intended Audience :: Developers
 Classifier: Intended Audience :: End Users/Desktop
 Classifier: License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)
 Classifier: Operating System :: OS Independent
-Classifier: Programming Language :: Python :: 2.7
 Classifier: Programming Language :: Python :: 3.5
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
 Classifier: Topic :: System :: Networking
+Requires-Python: >=3.5
+Description-Content-Type: text/x-rst

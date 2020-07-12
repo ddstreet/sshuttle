@@ -3,13 +3,15 @@ import re
 import signal
 import time
 import subprocess as ssubprocess
-import sshuttle.helpers as helpers
 import os
+import sys
+import platform
+
+import sshuttle.helpers as helpers
 import sshuttle.ssnet as ssnet
 import sshuttle.ssh as ssh
 import sshuttle.ssyslog as ssyslog
-import sys
-import platform
+import sshuttle.sdnotify as sdnotify
 from sshuttle.ssnet import SockWrapper, Handler, Proxy, Mux, MuxWrapper
 from sshuttle.helpers import log, debug1, debug2, debug3, Fatal, islocal, \
     resolvconf_nameservers
@@ -184,12 +186,6 @@ class MultiListener:
 class FirewallClient:
 
     def __init__(self, method_name, sudo_pythonpath):
-
-        # Default to sudo unless on OpenBSD in which case use built in `doas`
-        elevbin = 'sudo'
-        if platform.platform().startswith('OpenBSD'):
-            elevbin = 'doas'
-
         self.auto_nets = []
         python_path = os.path.dirname(os.path.dirname(__file__))
         argvbase = ([sys.executable, sys.argv[0]] +
@@ -198,9 +194,11 @@ class FirewallClient:
                     ['--firewall'])
         if ssyslog._p:
             argvbase += ['--syslog']
-        elev_prefix = [part % {'eb': elevbin}
-                       for part in ['%(eb)s', '-p',
-                                    '[local %(eb)s] Password: ']]
+        # Default to sudo unless on OpenBSD in which case use built in `doas`
+        if platform.platform().startswith('OpenBSD'):
+            elev_prefix = ['doas']
+        else:
+            elev_prefix = ['sudo', '-p', '[local sudo] Password: ']
         if sudo_pythonpath:
             elev_prefix += ['/usr/bin/env',
                             'PYTHONPATH=%s' % python_path]
@@ -223,18 +221,14 @@ class FirewallClient:
                 if argv[0] == 'su':
                     sys.stderr.write('[local su] ')
                 self.p = ssubprocess.Popen(argv, stdout=s1, preexec_fn=setup)
+                # No env: Talking to `FirewallClient.start`, which has no i18n.
                 e = None
                 break
-            except OSError as e:
+            except OSError:
                 pass
         self.argv = argv
         s1.close()
-        if sys.version_info < (3, 0):
-            # python 2.7
-            self.pfile = s2.makefile('wb+')
-        else:
-            # python 3.5
-            self.pfile = s2.makefile('rwb')
+        self.pfile = s2.makefile('rwb')
         if e:
             log('Spawning firewall manager: %r\n' % self.argv)
             raise Fatal(e)
@@ -268,11 +262,13 @@ class FirewallClient:
         self.pfile.write(b'ROUTES\n')
         for (family, ip, width, fport, lport) \
                 in self.subnets_include + self.auto_nets:
-            self.pfile.write(b'%d,%d,0,%s,%d,%d\n'
-                    % (family, width, ip.encode("ASCII"), fport, lport))
+            self.pfile.write(b'%d,%d,0,%s,%d,%d\n' % (family, width,
+                                                      ip.encode("ASCII"),
+                                                      fport, lport))
         for (family, ip, width, fport, lport) in self.subnets_exclude:
-            self.pfile.write(b'%d,%d,1,%s,%d,%d\n'
-                    % (family, width, ip.encode("ASCII"), fport, lport))
+            self.pfile.write(b'%d,%d,1,%s,%d,%d\n' % (family, width,
+                                                      ip.encode("ASCII"),
+                                                      fport, lport))
 
         self.pfile.write(b'NSLIST\n')
         for (family, ip) in self.nslist:
@@ -303,8 +299,8 @@ class FirewallClient:
             raise Fatal('%r expected STARTED, got %r' % (self.argv, line))
 
     def sethostip(self, hostname, ip):
-        assert(not re.search(b'[^-\w\.]', hostname))
-        assert(not re.search(b'[^0-9.]', ip))
+        assert(not re.search(rb'[^-\w\.]', hostname))
+        assert(not re.search(rb'[^0-9.]', ip))
         self.pfile.write(b'HOST %s,%s\n' % (hostname, ip))
         self.pfile.flush()
 
@@ -460,7 +456,7 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
             raise Fatal("failed to establish ssh session (1)")
         else:
             raise
-    mux = Mux(serversock, serversock)
+    mux = Mux(serversock.makefile("rb"), serversock.makefile("wb"))
     handlers.append(mux)
 
     expected = b'SSHUTTLE0001'
@@ -495,7 +491,8 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
     def onroutes(routestr):
         if auto_nets:
             for line in routestr.strip().split(b'\n'):
-                if not line: continue
+                if not line:
+                    continue
                 (family, ip, width) = line.split(b',', 2)
                 family = int(family)
                 width = int(width)
@@ -516,8 +513,13 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
         # set --auto-nets, we might as well wait for the message first, then
         # ignore its contents.
         mux.got_routes = None
-        fw.start()
+        serverready()
+
     mux.got_routes = onroutes
+
+    def serverready():
+        fw.start()
+        sdnotify.send(sdnotify.ready(), sdnotify.status('Connected'))
 
     def onhostlist(hostlist):
         debug2('got host list: %r\n' % hostlist)
@@ -598,8 +600,13 @@ def main(listenip_v6, listenip_v4,
         except KeyError:
             raise Fatal("User %s does not exist." % user)
 
-    required.ipv6 = len(subnets_v6) > 0 or listenip_v6 is not None
-    required.ipv4 = len(subnets_v4) > 0 or listenip_v4 is not None
+    if fw.method.name != 'nat':
+        required.ipv6 = len(subnets_v6) > 0 or listenip_v6 is not None
+        required.ipv4 = len(subnets_v4) > 0 or listenip_v4 is not None
+    else:
+        required.ipv6 = None
+        required.ipv4 = None
+
     required.udp = avail.udp
     required.dns = len(nslist) > 0
     required.user = False if user is None else True
@@ -707,7 +714,8 @@ def main(listenip_v6, listenip_v4,
         ports = range(12300, 9000, -1)
         for port in ports:
             debug2(' %d' % port)
-            if port in used_ports: continue
+            if port in used_ports:
+                continue
 
             dns_listener = MultiListener(socket.SOCK_DGRAM)
 
@@ -791,6 +799,8 @@ def main(listenip_v6, listenip_v4,
                 # it's not our child anymore; can't waitpid
                 fw.p.returncode = 0
             fw.done()
+            sdnotify.send(sdnotify.stop())
+
         finally:
             if daemon:
                 daemon_cleanup()

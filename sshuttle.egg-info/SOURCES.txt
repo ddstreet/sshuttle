@@ -1,6 +1,5 @@
 .gitignore
 .prospector.yml
-.travis.yml
 CHANGES.rst
 LICENSE
 MANIFEST.in
@@ -12,6 +11,8 @@ run
 setup.cfg
 setup.py
 tox.ini
+.github/workflows/pythonpackage.yml
+bin/sudoers-add
 docs/Makefile
 docs/changes.rst
 docs/chromeos.rst
@@ -21,6 +22,7 @@ docs/index.rst
 docs/installation.rst
 docs/make.bat
 docs/manpage.rst
+docs/openwrt.rst
 docs/overview.rst
 docs/platform.rst
 docs/requirements.rst
@@ -45,6 +47,7 @@ sshuttle/ssh.py
 sshuttle/ssnet.py
 sshuttle/ssyslog.py
 sshuttle/stresstest.py
+sshuttle/sudoers.py
 sshuttle/version.py
 sshuttle.egg-info/PKG-INFO
 sshuttle.egg-info/SOURCES.txt
@@ -57,7 +60,6 @@ sshuttle/methods/nat.py
 sshuttle/methods/nft.py
 sshuttle/methods/pf.py
 sshuttle/methods/tproxy.py
-tests/conftest.py
 tests/client/test_firewall.py
 tests/client/test_helpers.py
 tests/client/test_methods_nat.py

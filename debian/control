@@ -2,13 +2,11 @@ Source: sshuttle
 Section: net
 Priority: optional
 Maintainer: Brian May <bam@debian.org>
-Build-Depends: debhelper (>= 9), dh-python,
+Build-Depends: debhelper-compat (= 13), dh-python,
     python3-all, python3-setuptools, python3-pytest, python3-mock,
-    python-pytest-runner, python-pytest-cov,
     python3-sphinx (>= 1.0.7+dfsg-1~), python3-setuptools-scm,
     python3-pytest-runner, python3-pytest-cov
-Standards-Version: 4.0.0
-X-Python3-Version: >= 3.5
+Standards-Version: 4.5.0
 Homepage: https://github.com/sshuttle/sshuttle
 Vcs-Browser: https://salsa.debian.org/debian/sshuttle
 Vcs-Git: https://salsa.debian.org/debian/sshuttle.git
@@ -16,7 +14,8 @@ Vcs-Git: https://salsa.debian.org/debian/sshuttle.git
 Package: sshuttle
 Architecture: all
 Depends: iptables, openssh-client | lsh-client | dropbear | ssh-client,
-    python3-pkg-resources, ${python3:Depends}, ${misc:Depends}
+    python3-pkg-resources, python3-distutils,
+    ${python3:Depends}, ${misc:Depends}, ${sphinxdoc:Depends}
 Recommends: sudo
 Suggests: autossh
 Description: Transparent proxy server for VPN over SSH

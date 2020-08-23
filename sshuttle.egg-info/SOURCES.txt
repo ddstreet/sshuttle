@@ -68,3 +68,4 @@ tests/client/test_methods_tproxy.py
 tests/client/test_options.py
 tests/client/test_sdnotify.py
 tests/server/test_server.py
+tests/ssh/test_parse_hostport.py

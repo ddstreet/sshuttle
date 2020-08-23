@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: sshuttle
-Version: 1.0.3
+Version: 1.0.4
 Summary: Full-featured" VPN over an SSH tunnel
 Home-page: https://github.com/sshuttle/sshuttle
 Author: Brian May
@@ -37,6 +37,10 @@ Description: sshuttle: where transparent proxy meets VPN meets ssh
         
         Obtaining sshuttle
         ------------------
+        
+        - Ubuntu 16.04 or later::
+        
+              apt-get install sshuttle
         
         - Debian stretch or later::
         

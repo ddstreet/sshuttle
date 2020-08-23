@@ -1,3 +1,14 @@
+sshuttle (1.0.4-1) unstable; urgency=low
+
+  [ Debian Janitor ]
+  * Set upstream metadata fields: Bug-Database, Bug-Submit, Repository,
+    Repository-Browse.
+
+  [ Brian May ]
+  * New upstream release.
+
+ -- Brian May <bam@debian.org>  Mon, 24 Aug 2020 08:11:31 +1000
+
 sshuttle (1.0.3-1) unstable; urgency=medium
 
   [ Brian May ]

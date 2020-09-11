@@ -9,6 +9,10 @@ while 1:
     if name:
         name = name.decode("ASCII")
 
+        # in py2 types.ModuleType() needs name to be str() not unicode(),
+        # while py3 only has str(), so casting is safe for py3 and fixes py2
+        name = str(name)
+
         nbytes = int(sys.stdin.readline())
         if verbosity >= 2:
             sys.stderr.write('server: assembling %r (%d bytes)\n'

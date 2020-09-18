@@ -260,7 +260,7 @@ class Remote(object):
         self.lxc_exec(['apt', 'install', '-y', 'sshuttle'])
         if self.lxc_exec(['which', 'sshuttle']).returncode != 0:
             raise Exception('could not install sshuttle')
-        self.sshuttle_version = self.lxc_exec("dpkg-query -f '${Version}' -W sshuttle".split()).stdout
+        self.sshuttle_version = self.lxc_exec('dpkg-query -f ${Version} -W sshuttle'.split()).stdout
 
     def _install_python(self):
         self.log('installing python')
@@ -438,7 +438,7 @@ class SshuttleTest(unittest.TestCase):
 
     @property
     def sshuttle_version(self):
-        cmd = "dpkg-query -f '${Version}' -W sshuttle"
+        cmd = 'dpkg-query -f ${Version} -W sshuttle'
         return subprocess.run(cmd.split(), encoding='utf-8', stdout=subprocess.PIPE).stdout
 
     def sshuttle_start(self, src, dst, python, remote):

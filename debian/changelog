@@ -1,3 +1,9 @@
+sshuttle (1.0.4-1ubuntu2) groovy; urgency=medium
+
+  * d/t/cross-release: fix error in checking sshuttle version
+
+ -- Dan Streetman <ddstreet@canonical.com>  Fri, 18 Sep 2020 19:22:08 -0400
+
 sshuttle (1.0.4-1ubuntu1) groovy; urgency=medium
 
   * d/p/lp1873368/0001-Fix-python2-server-compatibility.patch,

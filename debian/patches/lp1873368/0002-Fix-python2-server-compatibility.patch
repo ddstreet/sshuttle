@@ -1,0 +1,32 @@
+From c12d2ba5c6d0c7287b1e316fec4f9c9bff63c328 Mon Sep 17 00:00:00 2001
+From: Joseph Barker <j.barker@leeds.ac.uk>
+Date: Fri, 28 Aug 2020 10:04:12 +0900
+Subject: [PATCH] Fix python2 server compatibility
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/sshuttle/+bug/1873368
+Origin: upstream, https://github.com/sshuttle/sshuttle/commit/c12d2ba5c6d0c7287b1e316fec4f9c9bff63c328
+
+Fixes  #469. We replace python3 exclusive code with a check for python3 and a compatibility fix. Note that the switch from os.set_nonblocking to fcntl.fcntl in 98d052d (fixing #503) also fixes python2 compatibility.
+---
+NOTE: the part of this upstream patch editing sshuttle/server.py is not needed
+in this backport, and was removed from this patch (<ddstreet@canonical.com>)
+
+ sshuttle/assembler.py |  7 +++++--
+ sshuttle/server.py    | 19 ++++++++++++++++++-
+ 2 files changed, 23 insertions(+), 3 deletions(-)
+
+--- a/sshuttle/assembler.py
++++ b/sshuttle/assembler.py
+@@ -7,8 +7,11 @@ z = zlib.decompressobj()
+ while 1:
+     name = sys.stdin.readline().strip()
+     if name:
+-        name = name.decode("ASCII")
+-
++        # python2 compat: in python2 sys.stdin.readline().strip() -> str
++        #                 in python3 sys.stdin.readline().strip() -> bytes
++        # (see #481)
++        if sys.version_info >= (3, 0):
++            name = name.decode("ASCII")
+         nbytes = int(sys.stdin.readline())
+         if verbosity >= 2:
+             sys.stderr.write('server: assembling %r (%d bytes)\n'

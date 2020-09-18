@@ -1,3 +1,12 @@
+sshuttle (0.78.5-1ubuntu1.1) focal; urgency=medium
+
+  * d/p/lp1873368/0001-allow-Mux-flush-fill-to-work-with-python-3.5.patch,
+    d/p/lp1873368/0002-Fix-python2-server-compatibility.patch:
+    - fix interoperability with remote py2 and/or py3
+      follow-on to last commit for (LP: #1873368)
+
+ -- Dan Streetman <ddstreet@canonical.com>  Fri, 18 Sep 2020 08:15:24 -0400
+
 sshuttle (0.78.5-1ubuntu1) focal; urgency=medium
 
   * d/p/0001-compatibility-with-python38.patch:

@@ -1,0 +1,53 @@
+From 98d052d19eb9f077dba892ca237d19253003e033 Mon Sep 17 00:00:00 2001
+From: Dan Streetman <ddstreet@canonical.com>
+Date: Sat, 15 Aug 2020 15:12:51 -0400
+Subject: [PATCH] allow Mux() flush/fill to work with python < 3.5
+Bug: https://github.com/sshuttle/sshuttle/issues/503
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/sshuttle/+bug/1873368
+Origin: upstream, https://github.com/sshuttle/sshuttle/pull/507
+
+Fixes: #503
+---
+ sshuttle/ssnet.py | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+--- a/sshuttle/ssnet.py
++++ b/sshuttle/ssnet.py
+@@ -4,6 +4,7 @@ import socket
+ import errno
+ import select
+ import os
++import fcntl
+ from sshuttle.helpers import b, binary_type, log, debug1, debug2, debug3, Fatal
+ 
+ MAX_CHANNEL = 65535
+@@ -434,7 +435,13 @@ class Mux(Handler):
+                 callback(cmd, data)
+ 
+     def flush(self):
+-        os.set_blocking(self.wfile.fileno(), False)
++        try:
++            os.set_blocking(self.wfile.fileno(), False)
++        except AttributeError:
++            # python < 3.5
++            flags = fcntl.fcntl(self.wfile.fileno(), fcntl.F_GETFL)
++            flags |= os.O_NONBLOCK
++            flags = fcntl.fcntl(self.wfile.fileno(), fcntl.F_SETFL, flags)
+         if self.outbuf and self.outbuf[0]:
+             wrote = _nb_clean(os.write, self.wfile.fileno(), self.outbuf[0])
+             debug2('mux wrote: %r/%d\n' % (wrote, len(self.outbuf[0])))
+@@ -444,7 +451,13 @@ class Mux(Handler):
+             self.outbuf[0:1] = []
+ 
+     def fill(self):
+-        os.set_blocking(self.rfile.fileno(), False)
++        try:
++            os.set_blocking(self.rfile.fileno(), False)
++        except AttributeError:
++            # python < 3.5
++            flags = fcntl.fcntl(self.rfile.fileno(), fcntl.F_GETFL)
++            flags |= os.O_NONBLOCK
++            flags = fcntl.fcntl(self.rfile.fileno(), fcntl.F_SETFL, flags)
+         try:
+             read = _nb_clean(os.read, self.rfile.fileno(), 32768)
+         except OSError:

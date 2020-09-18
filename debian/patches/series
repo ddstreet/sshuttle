@@ -1,0 +1,3 @@
+lp1873368/0001-Fix-python2-server-compatibility.patch
+lp1873368/0002-Fix-flake8-line-too-long.patch
+lp1873368/0003-Fix-python2-client-compatibility.patch

@@ -1,3 +1,14 @@
+sshuttle (1.0.4-1ubuntu1) groovy; urgency=medium
+
+  * d/p/lp1873368/0001-Fix-python2-server-compatibility.patch,
+    d/p/lp1873368/0002-Fix-flake8-line-too-long.patch,
+    d/p/lp1873368/0003-Fix-python2-client-compatibility.patch:
+    - fix compatibility with remote py2 (LP: #1873368)
+  * d/t/control, d/t/cross-release:
+    - add autopkgtest for cross-release compatibility checks
+
+ -- Dan Streetman <ddstreet@canonical.com>  Fri, 18 Sep 2020 13:57:01 -0400
+
 sshuttle (1.0.4-1) unstable; urgency=low
 
   [ Debian Janitor ]

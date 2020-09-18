@@ -1,0 +1,33 @@
+From ec5fb683506f85ec17198d96b1ece851fa3d9325 Mon Sep 17 00:00:00 2001
+From: Joseph Barker <j.barker@leeds.ac.uk>
+Date: Sat, 29 Aug 2020 21:32:18 +0900
+Subject: [PATCH] Fix python2 client compatibility
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/sshuttle/+bug/1873368
+Origin: upstream, https://github.com/sshuttle/sshuttle/commit/ec5fb683506f85ec17198d96b1ece851fa3d9325
+
+Python2 ignores the byte string qualification (b’foo’)  but falls over for the combination rb for this regexp. Switching the qualification to br appears to fix this and works in both python2 and python3.
+---
+ sshuttle/client.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sshuttle/client.py b/sshuttle/client.py
+index fae2931..5f247f4 100644
+--- a/sshuttle/client.py
++++ b/sshuttle/client.py
+@@ -299,8 +299,8 @@ class FirewallClient:
+             raise Fatal('%r expected STARTED, got %r' % (self.argv, line))
+ 
+     def sethostip(self, hostname, ip):
+-        assert(not re.search(rb'[^-\w\.]', hostname))
+-        assert(not re.search(rb'[^0-9.]', ip))
++        assert(not re.search(br'[^-\w\.]', hostname))
++        assert(not re.search(br'[^0-9.]', ip))
+         self.pfile.write(b'HOST %s,%s\n' % (hostname, ip))
+         self.pfile.flush()
+ 
+-- 
+2.25.1
+

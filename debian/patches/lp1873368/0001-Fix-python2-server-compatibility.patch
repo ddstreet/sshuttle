@@ -1,0 +1,64 @@
+From c12d2ba5c6d0c7287b1e316fec4f9c9bff63c328 Mon Sep 17 00:00:00 2001
+From: Joseph Barker <j.barker@leeds.ac.uk>
+Date: Fri, 28 Aug 2020 10:04:12 +0900
+Subject: [PATCH] Fix python2 server compatibility
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/sshuttle/+bug/1873368
+Origin: upstream, https://github.com/sshuttle/sshuttle/commit/c12d2ba5c6d0c7287b1e316fec4f9c9bff63c328
+
+Fixes  #469. We replace python3 exclusive code with a check for python3 and a compatibility fix. Note that the switch from os.set_nonblocking to fcntl.fcntl in 98d052d (fixing #503) also fixes python2 compatibility.
+---
+ sshuttle/assembler.py |  7 +++++--
+ sshuttle/server.py    | 19 ++++++++++++++++++-
+ 2 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/sshuttle/assembler.py b/sshuttle/assembler.py
+index 31900ee..de5730f 100644
+--- a/sshuttle/assembler.py
++++ b/sshuttle/assembler.py
+@@ -7,8 +7,11 @@ z = zlib.decompressobj()
+ while 1:
+     name = sys.stdin.readline().strip()
+     if name:
+-        name = name.decode("ASCII")
+-
++        # python2 compat: in python2 sys.stdin.readline().strip() -> str
++        #                 in python3 sys.stdin.readline().strip() -> bytes
++        # (see #481)
++        if sys.version_info >= (3, 0):
++            name = name.decode("ASCII")
+         nbytes = int(sys.stdin.readline())
+         if verbosity >= 2:
+             sys.stderr.write('server: assembling %r (%d bytes)\n'
+diff --git a/sshuttle/server.py b/sshuttle/server.py
+index 7bcd193..fa07b29 100644
+--- a/sshuttle/server.py
++++ b/sshuttle/server.py
+@@ -6,7 +6,24 @@ import time
+ import sys
+ import os
+ import platform
+-from shutil import which
++
++if sys.version_info >= (3, 0):
++    from shutil import which
++else:
++    # python2 compat: shutil.which is not available so we provide our own which command
++    def which(file, mode=os.F_OK | os.X_OK, path=None):
++        if path is not None:
++            search_paths = [path]
++        elif "PATH" in os.environ:
++            search_paths = os.environ["PATH"].split(os.pathsep)
++        else:
++            search_paths = os.defpath.split(os.pathsep)
++
++        for path in search_paths:
++            filepath = os.path.join(path, file)
++            if os.path.exists(filepath) and os.access(filepath, mode):
++                return filepath
++        return None
+ 
+ import sshuttle.ssnet as ssnet
+ import sshuttle.helpers as helpers
+-- 
+2.25.1
+

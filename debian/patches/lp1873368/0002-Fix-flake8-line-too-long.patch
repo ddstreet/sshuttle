@@ -1,0 +1,28 @@
+From 459e573019f5ac636f69e35de60233787c57048b Mon Sep 17 00:00:00 2001
+From: Joseph Barker <j.barker@leeds.ac.uk>
+Date: Fri, 28 Aug 2020 10:29:12 +0900
+Subject: [PATCH] Fix flake8 line too long
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/sshuttle/+bug/1873368
+Origin: upstream, https://github.com/sshuttle/sshuttle/commit/459e573019f5ac636f69e35de60233787c57048b
+
+---
+ sshuttle/server.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/sshuttle/server.py b/sshuttle/server.py
+index fa07b29..61e7602 100644
+--- a/sshuttle/server.py
++++ b/sshuttle/server.py
+@@ -10,7 +10,8 @@ import platform
+ if sys.version_info >= (3, 0):
+     from shutil import which
+ else:
+-    # python2 compat: shutil.which is not available so we provide our own which command
++    # python2 compat: shutil.which is not available so we provide our
++    # own which command
+     def which(file, mode=os.F_OK | os.X_OK, path=None):
+         if path is not None:
+             search_paths = [path]
+-- 
+2.25.1
+

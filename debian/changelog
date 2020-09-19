@@ -1,3 +1,10 @@
+sshuttle (1.0.4-1ubuntu3) groovy; urgency=medium
+
+  * d/t/cross-release:
+    - fixes for autopkgtest
+
+ -- Dan Streetman <ddstreet@canonical.com>  Sat, 19 Sep 2020 08:28:03 -0400
+
 sshuttle (1.0.4-1ubuntu2) groovy; urgency=medium
 
   * d/t/cross-release: fix error in checking sshuttle version

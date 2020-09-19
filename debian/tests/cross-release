@@ -12,6 +12,7 @@
 # that breaks sshuttle (most likely, changes in python).
 
 import apt_pkg
+import functools
 import ipaddress
 import json
 import os
@@ -36,27 +37,43 @@ RELEASES = []
 # really silly that users need to call this...especially just to use version_compare
 apt_pkg.init_system()
 
-def is_expected_failure(src_release, dst_release, python, sshuttle_version):
-    if python == 'python3' and is_expected_failure_py3(src_release, dst_release, sshuttle_version):
+@functools.lru_cache
+def get_arch():
+    return run_cmd('dpkg --print-architecture').stdout.strip()
+
+def is_expected_failure(src, dst, python):
+    if python == 'python2' and is_expected_failure_py2(src, dst):
+        return True
+    if python == 'python3' and is_expected_failure_py3(src, dst):
+        return True
+
+    # xenial requires 'netstat' installed in remote, LP: #1896299
+    if src.release == 'xenial' and apt_pkg.version_compare(src.sshuttle_version, '0.76-1ubuntu1') <= 0:
         return True
 
     # otherwise, we don't expect failure
     return False
 
-def is_expected_failure_py3(src_release, dst_release, sshuttle_version):
+def is_expected_failure_py2(src, dst):
+    # failure due to regression from initial fix for py3.8 fix
+    # should be fixed in version after this; LP: #1873368
+    if src.release == 'focal' and apt_pkg.version_compare(src.sshuttle_version, '0.78.5-1ubuntu1') <= 0:
+        return True
+
+def is_expected_failure_py3(src, dst):
     # expected failure: trusty -> any
     # since trusty is now ESM only, this isn't expected to be fixed
-    if src_release == 'trusty':
+    if src.release == 'trusty':
         return True
 
     # failure with py3.8 (or later) target, which is default py3 in focal (or later)
-    if DISTROINFO.version(dst_release) >= DISTROINFO.version('focal'):
+    if DISTROINFO.version(dst.release) >= DISTROINFO.version('focal'):
         # should be fixed in version after each of these; LP: #1873368
-        if (src_release == 'xenial' and apt_pkg.version_compare(sshuttle_version, '0.76-1ubuntu1') <= 0):
+        if src.release == 'xenial' and apt_pkg.version_compare(src.sshuttle_version, '0.76-1ubuntu1') <= 0:
             return True
-        if (src_release == 'bionic' and apt_pkg.version_compare(sshuttle_version, '0.78.3-1ubuntu1') <= 0):
+        if src.release == 'bionic' and apt_pkg.version_compare(src.sshuttle_version, '0.78.3-1ubuntu1') <= 0:
             return True
-        if (src_release == 'focal' and apt_pkg.version_compare(sshuttle_version, '0.78.5-1ubuntu1') <= 0):
+        if src.release == 'focal' and apt_pkg.version_compare(src.sshuttle_version, '0.78.5-1ubuntu1') <= 0:
             return True
 
     # otherwise, we don't expect failure
@@ -76,7 +93,7 @@ def load_tests(loader, standard_tests, pattern):
     suite = unittest.TestSuite()
     for release in sorted(RELEASES or VALID_RELEASES):
         cls = type(f'SshuttleTest_{release}', (SshuttleTest,),
-                   {'RELEASE': release})
+                   {'release': release})
         suite.addTests(loader.loadTestsFromTestCase(cls))
     return suite
 
@@ -150,7 +167,8 @@ def init_ssh_config():
     TESTBED['ssh_config'] = '\n'.join(['Host ' + hosts,
                                        '  StrictHostKeyChecking no',
                                        '  UserKnownHostsFile /dev/null',
-                                       '  ConnectTimeout 5',
+                                       '  ConnectTimeout 10',
+                                       '  ConnectionAttempts 18',
                                        ''])
     config = Path('/root/.ssh/config')
     if config.exists():
@@ -185,6 +203,14 @@ def init_base_test_class():
 def private_addr_to_subnet(addr):
     return ipaddress.ip_network(f'{addr}/24', strict=False).with_prefixlen
 
+def run_cmd(cmd, **kwargs):
+    if type(cmd) == str:
+        cmd = cmd.split()
+    kwargs.setdefault('stdout', subprocess.PIPE)
+    kwargs.setdefault('stderr', subprocess.STDOUT)
+    kwargs.setdefault('encoding', 'utf-8')
+    return subprocess.run(cmd, **kwargs)
+
 
 class Remote(object):
     def __init__(self, name, release):
@@ -193,9 +219,16 @@ class Remote(object):
         self.release = release
         self._start_cmds = []
 
+        cmd = f'lxc delete --force {self.name}'
+        self.log(cmd)
+        run_cmd(cmd)
+
         image = f'ubuntu-daily:{release}'
-        subprocess.run(['lxc', 'delete', '-f', self.name], stderr=subprocess.DEVNULL)
-        subprocess.run(['lxc', 'launch', image, self.name], check=True)
+        cmd = f'lxc launch --quiet {image} {self.name}'
+        self.log(cmd)
+        result = run_cmd(cmd)
+        if result.returncode != 0:
+            raise Exception(f'Could not launch {self.name}: {result.stdout}')
 
         self._wait_for_networking()
         self._create_ssh_key()
@@ -204,7 +237,7 @@ class Remote(object):
         self._apt_update_upgrade()
         self._install_sshuttle()
         self._install_python()
-        self.stop()
+        self.stop(force=False)
 
     def log(self, msg):
         print(f'{self.name}: {msg}')
@@ -212,7 +245,7 @@ class Remote(object):
     def _wait_for_networking(self):
         self.log(f'Waiting for {self.name} to finish starting')
         for sec in range(120):
-            if 'via' in self.lxc_exec('ip r show default'.split()).stdout:
+            if 'via' in self.lxc_exec('ip r show default').stdout:
                 break
             time.sleep(0.5)
         else:
@@ -221,7 +254,7 @@ class Remote(object):
     def _create_ssh_key(self):
         self.log('creating ssh key')
         self.lxc_exec(['ssh-keygen', '-f', '/root/.ssh/id_rsa', '-P', ''])
-        self._ssh_key = self.lxc_exec('cat /root/.ssh/id_rsa.pub'.split()).stdout
+        self._ssh_key = self.lxc_exec('cat /root/.ssh/id_rsa.pub').stdout
 
     def _add_local_ppas(self):
         paths = list(Path('/etc/apt/sources.list.d').glob('*.list'))
@@ -252,28 +285,31 @@ class Remote(object):
 
     def _apt_update_upgrade(self):
         self.log('upgrading packages')
-        self.lxc_exec('apt update'.split())
-        self.lxc_exec('apt upgrade -y'.split())
+        self.lxc_apt('update')
+        self.lxc_apt('upgrade -y')
 
     def _install_sshuttle(self):
         self.log('installing sshuttle')
-        self.lxc_exec(['apt', 'install', '-y', 'sshuttle'])
-        if self.lxc_exec(['which', 'sshuttle']).returncode != 0:
-            raise Exception('could not install sshuttle')
-        self.sshuttle_version = self.lxc_exec('dpkg-query -f ${Version} -W sshuttle'.split()).stdout
+        result_install = self.lxc_apt('install -y sshuttle')
+        result_which = self.lxc_exec('which sshuttle')
+        if result_which.returncode != 0:
+            err = result_install.stdout + result_which.stdout
+            raise Exception(f'could not install sshuttle: {err}')
+        self.sshuttle_version = self.lxc_exec('dpkg-query -f ${Version} -W sshuttle').stdout
 
     def _install_python(self):
         self.log('installing python')
-        for python in ['python', 'python2', 'python3']:
-            self.lxc_exec(['apt', 'install', '-y', python])
+        self.lxc_apt('install -y python')
         for python in ['python2', 'python3']:
-            if self.lxc_exec(['which', python]).returncode != 0:
-                raise Exception(f'could not install {python}')
+            result_install = self.lxc_apt(['install', '-y', python])
+            result_which = self.lxc_exec(['which', python])
+            if result_which.returncode != 0:
+                err = result_install.stdout + result_which.stdout
+                raise Exception(f'could not install {python}: {err}')
 
-    def snapshot_create(self, name='default', stop=True):
+    def snapshot_create(self, name='default'):
         self.log(f'creating snapshot: {name}')
-        if stop:
-            self.stop()
+        self.stop(force=False)
         subprocess.run(['lxc', 'snapshot', self.name, name], check=True)
 
     def snapshot_restore(self, name='default', start=True):
@@ -283,12 +319,12 @@ class Remote(object):
         if start:
             self.start()
 
-    def snapshot_update(self, name='default', stop=True):
+    def snapshot_update(self, name='default'):
         self.log(f'updating snapshot: {name}')
-        subprocess.run(['lxc', 'delete', f'{self.name}/{name}'], check=True)
-        self.snapshot_create(name=name, stop=stop)
+        subprocess.run(['lxc', 'delete', '--force', f'{self.name}/{name}'], check=True)
+        self.snapshot_create(name)
 
-    @property
+    @functools.cached_property
     def ssh_key(self):
         return self._ssh_key
 
@@ -317,17 +353,21 @@ class Remote(object):
         self.add_file_content('/root/.ssh/config', config)
 
     def lxc_exec(self, cmd, **kwargs):
-        kwargs.setdefault('stdout', subprocess.PIPE)
-        kwargs.setdefault('stderr', subprocess.PIPE)
-        kwargs.setdefault('encoding', 'utf-8')
-        return subprocess.run(['lxc', 'exec', self.name, '--'] + cmd, **kwargs)
+        if type(cmd) == str:
+            cmd = cmd.split()
+        return run_cmd(['lxc', 'exec', self.name, '--'] + cmd, **kwargs)
+
+    def lxc_apt(self, cmd, **kwargs):
+        if type(cmd) == str:
+            cmd = cmd.split()
+        return run_cmd(['lxc', 'exec', self.name, '--env', 'DEBIAN_FRONTEND=noninteractive', '--', 'apt'] + cmd, **kwargs)
 
     def lxc_file_pull(self, remote, local, fail_if_missing=False):
         remote = f'{self.name}{remote}'
         self.log(f'{local} <- {remote}')
         try:
-            subprocess.run(['lxc', 'file', 'pull', remote, local], check=True, encoding='utf-8',
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            run_cmd(['lxc', 'file', 'pull', remote, local], check=True,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except subprocess.CalledProcessError:
             if fail_if_missing:
                 raise
@@ -340,12 +380,11 @@ class Remote(object):
     def lxc_file_push(self, local, remote):
         remote = f'{self.name}{remote}'
         self.log(f'{local} -> {remote}')
-        subprocess.run(['lxc', 'file', 'push', local, remote], check=True)
+        run_cmd(['lxc', 'file', 'push', local, remote], check=True)
 
     @property
     def json(self):
-        listjson = subprocess.run(['lxc', 'list', '--format', 'json'], encoding='utf-8',
-                                  stdout=subprocess.PIPE).stdout
+        listjson = run_cmd('lxc list --format json').stdout
         filtered = list(filter(lambda i: i['name'] == self.name, json.loads(listjson)))
         if len(filtered) != 1:
             raise Exception(f'Expected only 1 lxc list entry for {self.name}, found {len(filtered)}:\n{listjson}')
@@ -353,21 +392,31 @@ class Remote(object):
 
     @property
     def is_running(self):
-        return self.json['status'] != 'Stopped'
+        return self.json['status'] == 'Running'
 
     def start(self):
         if not self.is_running:
-            subprocess.run(['lxc', 'start', self.name])
+            cmd = f'lxc start {self.name}'
+            self.log(cmd)
+            result = run_cmd(cmd, check=True)
+            if result.stdout:
+                self.log(result.stdout)
             self._wait_for_networking()
             for cmd in self._start_cmds:
-                self.lxc_exec(cmd.split())
+                self.lxc_exec(cmd)
 
-    def stop(self):
-        if self.is_running:
-            subprocess.run(['lxc', 'stop', self.name])
+    def stop(self, force=True):
+        cmd = 'lxc stop'
+        if force:
+            cmd += ' --force'
+        cmd += f' {self.name}'
+        self.log(cmd)
+        result = run_cmd(cmd)
+        if result.stdout:
+            self.log(result.stdout)
 
     def __del__(self):
-        subprocess.run(['lxc', 'delete', '-f', self.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        run_cmd(['lxc', 'delete', '--force', self.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 class VerboseAssertionError(AssertionError):
@@ -393,17 +442,26 @@ class VerboseAssertionError(AssertionError):
 
 
 class SshuttleTest(unittest.TestCase):
-    RELEASE = None
+    release = None
     failureException = VerboseAssertionError
+
+    @classmethod
+    def is_arch_supported(cls):
+        if cls.release == 'trusty':
+            return get_arch() == 'amd64'
+        return True
 
     @classmethod
     def setUpClass(cls):
         # note that some of the cls attrs used here are set by setUpModule()
 
         # this is set by the subclass, and required
-        assert(cls.RELEASE)
+        assert(cls.release)
 
-        remote = Remote(f'remote-{cls.RELEASE}', cls.RELEASE)
+        if not cls.is_arch_supported():
+            raise unittest.SkipTest(f'Release {cls.release} not available for {get_arch()}')
+
+        remote = Remote(f'remote-{cls.release}', cls.release)
         remote.add_ssh_key(cls.testbed_ssh_key)
         remote.add_ssh_config(cls.testbed_ssh_config)
         remote.private_addr = TESTBED["remote_private_addr"]
@@ -421,6 +479,7 @@ class SshuttleTest(unittest.TestCase):
         del cls.remote
 
     def setUp(self):
+        self.name = f'testbed-{self.release}'
         self.reverse_remote.snapshot_restore()
         self.remote.snapshot_restore()
         self.sshuttle_process = None
@@ -433,102 +492,94 @@ class SshuttleTest(unittest.TestCase):
         self.remote.stop()
         self.reverse_remote.stop()
 
-    def add_failure_log_test_detail(self, src, dst, python, sshuttle_version):
-        self.failureException.add_log(f'Test detail: {src} sshuttle {sshuttle_version} to {dst} {python}')
-
-    @property
+    @functools.cached_property
     def sshuttle_version(self):
-        cmd = 'dpkg-query -f ${Version} -W sshuttle'
-        return subprocess.run(cmd.split(), encoding='utf-8', stdout=subprocess.PIPE).stdout
+        return run_cmd('dpkg-query -f ${Version} -W sshuttle').stdout
 
-    def sshuttle_start(self, src, dst, python, remote):
-        sshuttle_cmd = f'sshuttle --python {python} -r {dst} {remote.private_subnet}'
-        if remote is self.reverse_remote:
+    def sshuttle_start(self, dst, python):
+        sshuttle_cmd = f'sshuttle --python {python} -r {dst.fqdn} {dst.private_subnet}'
+        if dst is self.reverse_remote:
             sshuttle_cmd = f'lxc exec {self.remote.name} -- {sshuttle_cmd}'
         print(f'running: {sshuttle_cmd}')
         self.sshuttle_process = subprocess.Popen(sshuttle_cmd.split(), encoding='utf-8',
                                                  stdout=self.sshuttle_log, stderr=self.sshuttle_log)
         print('waiting for sshuttle to start...', end='', flush=True)
-        for sec in range(60):
+        for sec in range(300):
             if self.sshuttle_process.poll() is not None:
-                print('sshuttle failed :-(')
+                print('sshuttle failed :-(', flush=True)
                 break
             if 'client: Connected.' in Path(self.sshuttle_log.name).read_text(encoding='utf-8'):
-                print('started')
+                print('started', flush=True)
                 break
             time.sleep(1)
             print('.', end='', flush=True)
         else:
             print("WARNING: timed out waiting for sshuttle to start, the test may fail")
-        self.failureException.add_log(Path(self.sshuttle_log.name).read_text(encoding='utf-8'))
         if self.sshuttle_process.poll() is not None:
             self.fail('sshuttle process failed to start')
 
     def sshuttle_stop(self):
         if self.sshuttle_process and self.sshuttle_process.poll() is None:
-            print('stopping local sshuttle')
+            print('stopping sshuttle...')
             self.sshuttle_process.terminate()
-            try:
+            with suppress(subprocess.TimeoutExpired):
                 self.sshuttle_process.communicate(timeout=30)
-            except subprocess.TimeoutExpired:
-                self.sshuttle_process.kill()
-                self.sshuttle_process.communicate(timeout=30)
+                print('sshuttle stopped')
+                self.sshuttle_process = None
+                return
 
-    def ssh_local_to_remote(self):
-        print(f'local {self.release} ssh to remote {self.remote.release} {self.remote.private_addr}')
-        try:
-            subprocess.run(['ssh', self.remote.private_addr, 'true'], check=True)
+            print('sshuttle did not respond, killing sshuttle...')
+            self.sshuttle_process.kill()
+            with suppress(subprocess.TimeoutExpired):
+                self.sshuttle_process.communicate(timeout=30)
+                print('sshuttle stopped')
+                self.sshuttle_process = None
+                return
+
+            self.fail('sshuttle subprocess refused to stop')
+
+    def ssh_to(self, remote):
+        ssh_cmd = ['ssh', '-v', remote.private_addr, '--', 'sh', '-c', '"echo connected to $(hostname)"'] 
+        if remote is self.reverse_remote:
+            ssh_cmd = ['lxc', 'exec', self.remote.name, '--'] + ssh_cmd
+        print(f'running: {ssh_cmd}')
+        result = run_cmd(ssh_cmd)
+        self.failureException.add_log(result.stdout)
+        if result.returncode == 0:
+            print('ssh connected')
             return True
-        except subprocess.CalledProcessError:
-            return False
+        else:
+            if result.stdout:
+                # just print the last line here; this might be an expected failure,
+                # and for unexpected failures the full output will be included in the failure detail
+                print(result.stdout.splitlines()[-1])
+            print('ssh failed')
 
     def test_local_to_remote_py2(self):
-        self._test_local_to_remote('python2')
+        self._test_to_remote(self, self.remote, 'python2')
 
     def test_local_to_remote_py3(self):
-        self._test_local_to_remote('python3')
-
-    def _test_local_to_remote(self, python):
-        self.add_failure_log_test_detail(self.release, self.remote.release, python, self.sshuttle_version)
-        try:
-            print('this ssh connection should timeout:')
-            self.assertFalse(self.ssh_local_to_remote())
-            self.sshuttle_start('local', self.remote.fqdn, python, self.remote)
-            print('this ssh connection should not timeout:')
-            self.assertTrue(self.ssh_local_to_remote())
-        except AssertionError:
-            if is_expected_failure(self.release, self.remote.release, python, self.sshuttle_version):
-                self.skipTest('This is an expected failure, ignoring test failure')
-            else:
-                raise
-
-    def ssh_remote_to_reverse_remote(self):
-        print(f'remote {self.remote.release} ssh to remote {self.reverse_remote.release} {self.reverse_remote.private_addr}')
-        try:
-            self.remote.lxc_exec(['ssh', self.reverse_remote.private_addr, 'true'],
-                                 stdout=sys.stdout, stderr=sys.stderr, check=True)
-            return True
-        except subprocess.CalledProcessError:
-            return False
+        self._test_to_remote(self, self.remote, 'python3')
 
     def test_remote_to_reverse_remote_py2(self):
-        self._test_remote_to_reverse_remote('python2')
+        self._test_to_remote(self.remote, self.reverse_remote, 'python2')
 
     def test_remote_to_reverse_remote_py3(self):
-        self._test_remote_to_reverse_remote('python3')
+        self._test_to_remote(self.remote, self.reverse_remote, 'python3')
 
-    def _test_remote_to_reverse_remote(self, python):
-        self.add_failure_log_test_detail(self.remote.release, self.reverse_remote.release, python, self.remote.sshuttle_version)
+    def _test_to_remote(self, src, dst, python):
+        self.failureException.add_log(f'Test detail: {src.name} sshuttle {src.sshuttle_version} to {dst.name} {python}')
+        print('this ssh connection should timeout:')
+        self.assertFalse(self.ssh_to(dst))
         try:
-            print('this ssh connection should timeout:')
-            self.assertFalse(self.ssh_remote_to_reverse_remote())
-            self.sshuttle_start(self.remote.name, self.reverse_remote.fqdn, python, self.reverse_remote)
+            self.sshuttle_start(dst, python)
             print('this ssh connection should not timeout:')
-            self.assertTrue(self.ssh_remote_to_reverse_remote())
+            self.assertTrue(self.ssh_to(dst))
         except AssertionError:
-            if is_expected_failure(self.remote.release, self.reverse_remote.release, python, self.remote.sshuttle_version):
+            if is_expected_failure(src, dst, python):
                 self.skipTest('This is an expected failure, ignoring test failure')
             else:
+                self.failureException.add_log(Path(self.sshuttle_log.name).read_text(encoding='utf-8'))
                 raise
 
 

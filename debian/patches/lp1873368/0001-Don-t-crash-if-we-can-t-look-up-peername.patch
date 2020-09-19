@@ -1,0 +1,25 @@
+From 0dba8a8beb5e2a6f16042421455004c2e7587ed4 Mon Sep 17 00:00:00 2001
+From: Brian May <brian@linuxpenguins.xyz>
+Date: Tue, 21 Aug 2018 08:36:51 +1000
+Subject: [PATCH] Don't crash if we can't look up peername
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/sshuttle/+bug/1873368
+Origin: upstream, https://github.com/sshuttle/sshuttle/commit/0dba8a8beb5e2a6f16042421455004c2e7587ed4
+
+Peername is only used for information display messages.
+
+Fixes #259
+---
+ sshuttle/ssnet.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+--- a/sshuttle/ssnet.py
++++ b/sshuttle/ssnet.py
+@@ -95,6 +95,8 @@ def _try_peername(sock):
+         _, e = sys.exc_info()[:2]
+         if e.args[0] not in (errno.ENOTCONN, errno.ENOTSOCK):
+             raise
++    except AttributeError:
++        pass
+     return 'unknown'
+ 
+ 

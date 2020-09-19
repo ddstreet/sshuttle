@@ -1,1 +1,6 @@
 make-hostwatch-find-fqdn-and-hostname.patch
+0001-compatibility-with-python38.patch
+lp1873368/0001-Don-t-crash-if-we-can-t-look-up-peername.patch
+lp1873368/0002-allow-Mux-flush-fill-to-work-with-python-3.5.patch
+lp1873368/0003-Fix-python2-server-compatibility.patch
+lp1592853-Use-versions-of-python3-greater-than-3.5-when-availa.patch

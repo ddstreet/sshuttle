@@ -1,3 +1,21 @@
+sshuttle (0.78.3-1ubuntu1.1) bionic; urgency=medium
+
+  [ Dan Streetman ]
+  * d/p/lp1592853-Use-versions-of-python3-greater-than-3.5-when-availa.patch:
+    - detect if remote python is 'python' or 'python3' (LP: #1592853)
+  * d/p/lp1873368/0001-Don-t-crash-if-we-can-t-look-up-peername.patch,
+    d/p/lp1873368/0002-allow-Mux-flush-fill-to-work-with-python-3.5.patch,
+    d/p/lp1873368/0003-Fix-python2-server-compatibility.patch,
+    - fix interoperability with other releases py2/py3
+      (same LP bug as below)
+
+  [ Felipe Reyes ]
+  * d/p/0001-compatibility-with-python38.patch:
+    Backport patch to make sshuttle compatible
+    with python-3.8. (LP: #1873368). Closes: #953621.
+
+ -- Felipe Reyes <felipe.reyes@canonical.com>  Sat, 19 Sep 2020 13:54:06 -0400
+
 sshuttle (0.78.3-1ubuntu1) bionic; urgency=medium
 
   * Make hostwatch find both fqdn and hostname (LP: #1787245)

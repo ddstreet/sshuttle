@@ -42,6 +42,8 @@ def get_arch():
     return run_cmd('dpkg --print-architecture').stdout.strip()
 
 def is_expected_failure(src, dst, python):
+    if not python and is_expected_failure_nopy(src, dst):
+        return True
     if python == 'python2' and is_expected_failure_py2(src, dst):
         return True
     if python == 'python3' and is_expected_failure_py3(src, dst):
@@ -53,6 +55,12 @@ def is_expected_failure(src, dst, python):
 
     # otherwise, we don't expect failure
     return False
+
+def is_expected_failure_nopy(src, dst):
+    # failure due to regression in patch to detect python command
+    # should be fixed in version after this; LP: #1897961
+    if src.release == 'xenial' and apt_pkg.version_compare(src.sshuttle_version, '0.76-1ubuntu1.1') <= 0:
+        return True
 
 def is_expected_failure_py2(src, dst):
     # failure due to regression from initial fix for py3.8 fix
@@ -497,7 +505,10 @@ class SshuttleTest(unittest.TestCase):
         return run_cmd('dpkg-query -f ${Version} -W sshuttle').stdout
 
     def sshuttle_start(self, dst, python):
-        sshuttle_cmd = f'sshuttle --python {python} -r {dst.fqdn} {dst.private_subnet}'
+        sshuttle_cmd = 'sshuttle'
+        if python:
+            sshuttle_cmd += f' --python {python}'
+        sshuttle_cmd += f' -r {dst.fqdn} {dst.private_subnet}'
         if dst is self.reverse_remote:
             sshuttle_cmd = f'lxc exec {self.remote.name} -- {sshuttle_cmd}'
         print(f'running: {sshuttle_cmd}')
@@ -555,11 +566,17 @@ class SshuttleTest(unittest.TestCase):
                 print(result.stdout.splitlines()[-1])
             print('ssh failed')
 
+    def test_local_to_remote_nopy(self):
+        self._test_to_remote(self, self.remote, None)
+
     def test_local_to_remote_py2(self):
         self._test_to_remote(self, self.remote, 'python2')
 
     def test_local_to_remote_py3(self):
         self._test_to_remote(self, self.remote, 'python3')
+
+    def test_remote_to_reverse_remote_nopy(self):
+        self._test_to_remote(self.remote, self.reverse_remote, None)
 
     def test_remote_to_reverse_remote_py2(self):
         self._test_to_remote(self.remote, self.reverse_remote, 'python2')
@@ -568,7 +585,7 @@ class SshuttleTest(unittest.TestCase):
         self._test_to_remote(self.remote, self.reverse_remote, 'python3')
 
     def _test_to_remote(self, src, dst, python):
-        self.failureException.add_log(f'Test detail: {src.name} sshuttle {src.sshuttle_version} to {dst.name} {python}')
+        self.failureException.add_log(f'Test detail: {src.name} sshuttle {src.sshuttle_version} to {dst.name} {python if python else ""}')
         print('this ssh connection should timeout:')
         self.assertFalse(self.ssh_to(dst))
         try:

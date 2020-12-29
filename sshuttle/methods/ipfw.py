@@ -1,8 +1,8 @@
 import os
 import subprocess as ssubprocess
 from sshuttle.methods import BaseMethod
-from sshuttle.helpers import log, debug1, debug3, \
-    Fatal, family_to_string
+from sshuttle.helpers import log, debug1, debug2, debug3, \
+    Fatal, family_to_string, get_env, which
 
 recvmsg = None
 try:
@@ -61,11 +61,7 @@ else:
 
 def ipfw_rule_exists(n):
     argv = ['ipfw', 'list']
-    env = {
-        'PATH': os.environ['PATH'],
-        'LC_ALL': "C",
-    }
-    p = ssubprocess.Popen(argv, stdout=ssubprocess.PIPE, env=env)
+    p = ssubprocess.Popen(argv, stdout=ssubprocess.PIPE, env=get_env())
 
     found = False
     for line in p.stdout:
@@ -85,11 +81,7 @@ _oldctls = {}
 
 def _fill_oldctls(prefix):
     argv = ['sysctl', prefix]
-    env = {
-        'PATH': os.environ['PATH'],
-        'LC_ALL': "C",
-    }
-    p = ssubprocess.Popen(argv, stdout=ssubprocess.PIPE, env=env)
+    p = ssubprocess.Popen(argv, stdout=ssubprocess.PIPE, env=get_env())
     for line in p.stdout:
         line = line.decode()
         assert(line[-1] == '\n')
@@ -105,7 +97,7 @@ def _fill_oldctls(prefix):
 def _sysctl_set(name, val):
     argv = ['sysctl', '-w', '%s=%s' % (name, val)]
     debug1('>> %s\n' % ' '.join(argv))
-    return ssubprocess.call(argv, stdout=open(os.devnull, 'w'))
+    return ssubprocess.call(argv, stdout=open(os.devnull, 'w'), env=get_env())
     # No env: No output. (Or error that won't be parsed.)
 
 
@@ -139,7 +131,7 @@ def sysctl_set(name, val, permanent=False):
 def ipfw(*args):
     argv = ['ipfw', '-q'] + list(args)
     debug1('>> %s\n' % ' '.join(argv))
-    rv = ssubprocess.call(argv)
+    rv = ssubprocess.call(argv, env=get_env())
     # No env: No output. (Or error that won't be parsed.)
     if rv:
         raise Fatal('%r returned %d' % (argv, rv))
@@ -148,7 +140,7 @@ def ipfw(*args):
 def ipfw_noexit(*args):
     argv = ['ipfw', '-q'] + list(args)
     debug1('>> %s\n' % ' '.join(argv))
-    ssubprocess.call(argv)
+    ssubprocess.call(argv, env=get_env())
     # No env: No output. (Or error that won't be parsed.)
 
 
@@ -261,3 +253,10 @@ class Method(BaseMethod):
         ipfw_noexit('table', '124', 'flush')
         ipfw_noexit('table', '125', 'flush')
         ipfw_noexit('table', '126', 'flush')
+
+    def is_supported(self):
+        if which("ipfw"):
+            return True
+        debug2("ipfw method not supported because 'ipfw' command is "
+               "missing.\n")
+        return False

@@ -53,6 +53,7 @@ sshuttle.egg-info/PKG-INFO
 sshuttle.egg-info/SOURCES.txt
 sshuttle.egg-info/dependency_links.txt
 sshuttle.egg-info/entry_points.txt
+sshuttle.egg-info/requires.txt
 sshuttle.egg-info/top_level.txt
 sshuttle/methods/__init__.py
 sshuttle/methods/ipfw.py

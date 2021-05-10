@@ -504,6 +504,13 @@ class SshuttleTest(unittest.TestCase):
     def sshuttle_version(self):
         return run_cmd('dpkg-query -f ${Version} -W sshuttle').stdout
 
+    def sshuttle_started_ok(self):
+        output = Path(self.sshuttle_log.name).read_text(encoding='utf-8')
+        # Unfortunately we have to just grep the output to see if it 'connected'
+        # and the specific output format has changed across versions
+        # Since all output so far includes 'Connected' we'll use that word
+        return 'connected' in output.lower()
+
     def sshuttle_start(self, dst, python):
         sshuttle_cmd = 'sshuttle'
         if python:
@@ -519,7 +526,7 @@ class SshuttleTest(unittest.TestCase):
             if self.sshuttle_process.poll() is not None:
                 print('sshuttle failed :-(', flush=True)
                 break
-            if 'client: Connected.' in Path(self.sshuttle_log.name).read_text(encoding='utf-8'):
+            if self.sshuttle_started_ok():
                 print('started', flush=True)
                 break
             time.sleep(1)
@@ -549,8 +556,12 @@ class SshuttleTest(unittest.TestCase):
 
             self.fail('sshuttle subprocess refused to stop')
 
-    def ssh_to(self, remote):
-        ssh_cmd = ['ssh', '-v', remote.private_addr, '--', 'sh', '-c', '"echo connected to $(hostname)"'] 
+    def ssh_to(self, remote, expect_timeout=False):
+        ssh_cmd = ['ssh']
+        if expect_timeout:
+            # No need to wait long if we expect it to timeout
+            ssh_cmd += ['-o', 'ConnectionAttempts=2']
+        ssh_cmd += ['-v', remote.private_addr, '--', 'sh', '-c', '"echo connected to $(hostname)"']
         if remote is self.reverse_remote:
             ssh_cmd = ['lxc', 'exec', self.remote.name, '--'] + ssh_cmd
         print(f'running: {ssh_cmd}')
@@ -587,7 +598,7 @@ class SshuttleTest(unittest.TestCase):
     def _test_to_remote(self, src, dst, python):
         self.failureException.add_log(f'Test detail: {src.name} sshuttle {src.sshuttle_version} to {dst.name} {python if python else ""}')
         print('this ssh connection should timeout:')
-        self.assertFalse(self.ssh_to(dst))
+        self.assertFalse(self.ssh_to(dst, expect_timeout=True))
         try:
             self.sshuttle_start(dst, python)
             print('this ssh connection should not timeout:')

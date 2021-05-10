@@ -1,3 +1,10 @@
+sshuttle (1.0.5-1ubuntu2) impish; urgency=medium
+
+  * d/t/cross-release: reduce total test time by waiting less
+    for expected timeouts, and fix when we notice sshuttle started
+
+ -- Dan Streetman <ddstreet@canonical.com>  Mon, 10 May 2021 10:46:14 -0400
+
 sshuttle (1.0.5-1ubuntu1) hirsute; urgency=medium
 
   * Merge with Debian; remaining changes:

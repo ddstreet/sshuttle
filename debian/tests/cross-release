@@ -9,7 +9,7 @@
 # direction tests *do not* test the sshuttle under test by this autopkgtest, since
 # on a "remote" system sshuttle is not involved at all, and does not even need to be
 # installed; the reverse direction test primarily tests if anything *else* has changed
-# that breaks sshuttle (most likely, changes in python).
+# that breaks the *existing* sshuttle on the instance (most likely, changes in python).
 
 import apt_pkg
 import functools
@@ -31,11 +31,78 @@ from pathlib import Path
 
 DISTROINFO = UbuntuDistroInfo()
 VALID_RELEASES = set(DISTROINFO.supported_esm() + DISTROINFO.supported() + [DISTROINFO.devel()])
-TESTBED = {}
 RELEASES = []
+TESTBED = None
+SSH_KEY = None
+SSH_CONFIG = None
+IF_NAME = 'eth1'
+BR_NAME = 'br1'
 
 # really silly that users need to call this...especially just to use version_compare
 apt_pkg.init_system()
+
+class Testbed(object):
+    def __init__(self):
+        self.net = {}
+        self.index = {}
+        self._find_subnets()
+
+    @property
+    def shared_glob(self):
+        '''Get the 10.X.* glob-format subnet for ~/.ssh/config usage'''
+        b = self.net.get('shared').exploded.split('.')[1]
+        return f'10.{b}.0.*'
+
+    @property
+    def shared_next(self):
+        '''This is the next unique ip address on the shared subnet'''
+        return self._next_interface('shared')
+
+    @property
+    def remote(self):
+        '''This is the unique private subnet used for each "remote" instance'''
+        return self._interface('remote')
+
+    @property
+    def reverse(self):
+        '''This is the unique private subnet used for the single "reverse remote" instance'''
+        return self._interface('reverse')
+
+    def _network(self, b):
+        return ipaddress.ip_network(f'10.{b}.0.0/24')
+
+    def _network_to_interface(self, network, index=0):
+        addr = list(network.hosts())[index].exploded
+        return ipaddress.ip_interface(f'{addr}/{network.prefixlen}')
+
+    def _interface(self, name, index=0):
+        return self._network_to_interface(self.net.get(name), index)
+
+    def _next_interface(self, name):
+        index = self.index.get(name)
+        self.index[name] = index + 1
+        return self._interface(name, index)
+
+    def _find_subnets(self):
+        start = 254
+        for name in ['shared', 'remote', 'reverse']:
+            start = self._find_subnet(name, start)
+
+    def _find_subnet(self, name, start):
+        for b in range(start, 0, -1):
+            network = self._network(b)
+            iface = self._network_to_interface(network)
+            result = subprocess.run(f'ip r get {iface.ip}'.split(),
+                                    encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # we try to find a subnet that isn't locally reachable
+            # if returncode != 0, then the subnet isn't reachable (i.e. no gateway)
+            # if 'via' is in stdout, then the subnet isn't locally reachable
+            if result.returncode != 0 or 'via' in result.stdout:
+                self.net[name] = network
+                self.index[name] = 0
+                return b - 1
+        else:
+            raise Exception('Could not find any 10.* subnet to use for private addresses')
 
 @functools.lru_cache
 def get_arch():
@@ -106,78 +173,55 @@ def load_tests(loader, standard_tests, pattern):
     return suite
 
 def setUpModule():
-    subprocess.run(['lxd', 'init', '--auto'], check=True)
+    global TESTBED
 
-    init_lxd()
-    init_private_addrs()
+    _run_cmd('lxd init --auto', check=True)
+
+    TESTBED = Testbed()
+
+    add_shared_bridge()
+    add_private_subnets()
     init_ssh_config()
     init_base_test_class()
 
 def tearDownModule():
     remove_ssh_config()
     remove_private_subnets()
+    remove_shared_bridge()
     del SshuttleTest.reverse_remote
 
-def init_lxd():
-    network_json = json.loads(subprocess.check_output('lxc network list --format json'.split(), encoding='utf-8'))
-    managed_networks = list(filter(lambda n: n.get('managed'), network_json))
-    if len(managed_networks) != 1:
-        raise unittest.SkipTest(f'Expected only 1 lxd-managed network, found {len(managed_networks)}:\n{managed_networks}')
-    lxdbr = managed_networks[0]
+def add_shared_bridge():
+    _run_cmd(f'ip l add dev {BR_NAME} type bridge')
+    _run_cmd(f'ip l set up dev {BR_NAME}')
+    _run_cmd(f'ip a add {TESTBED.shared_next} dev {BR_NAME}')
 
-    TESTBED['lxdbr_name'] = lxdbr.get('name')
-    TESTBED['lxdbr_addr'] = lxdbr.get('config').get('ipv4.address').partition('/')[0]
-    TESTBED['lxdbr_domain'] = lxdbr.get('config').get('dns.domain', 'lxd')
-
-    subprocess.run(['resolvectl', 'dns', TESTBED['lxdbr_name'], TESTBED['lxdbr_addr']])
-    subprocess.run(['resolvectl', 'domain', TESTBED['lxdbr_name'], f'~{TESTBED["lxdbr_domain"]}'])
-
-def init_private_addrs():
-    TESTBED['remote_private_addr'] = None
-    TESTBED['reverse_remote_private_addr'] = None
-
-    b = 255
-    while b > 0:
-        b -= 1
-        addr = f'10.{b}.0.1'
-        if 'via' in subprocess.run(['ip', 'r', 'get', addr], encoding='utf-8',
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout:
-            if not TESTBED['remote_private_addr']:
-                TESTBED['remote_private_addr'] = addr
-                continue
-            if not TESTBED['reverse_remote_private_addr']:
-                TESTBED['reverse_remote_private_addr'] = addr
-                break
-    else:
-        raise Exception('Could not find any 10.* subnet to use for private addresses')
-
-    TESTBED['remote_private_subnet'] = private_addr_to_subnet(TESTBED['remote_private_addr'])
-    TESTBED['reverse_remote_private_subnet'] = private_addr_to_subnet(TESTBED['reverse_remote_private_addr'])
-
+def add_private_subnets():
     # Force the private addrs unreachable so we don't try to reach them out our normal gateway
-    subprocess.run(['ip', 'r', 'add', TESTBED['remote_private_subnet'], 'dev', 'lo'])
-    subprocess.run(['ip', 'r', 'add', TESTBED['reverse_remote_private_subnet'], 'dev', 'lo'])
+    _run_cmd(f'ip r add {TESTBED.remote.network} dev lo')
+    _run_cmd(f'ip r add {TESTBED.reverse.network} dev lo')
 
 def remove_private_subnets():
-    subprocess.run(['ip', 'r', 'del', TESTBED['remote_private_subnet'], 'dev', 'lo'])
-    subprocess.run(['ip', 'r', 'del', TESTBED['reverse_remote_private_subnet'], 'dev', 'lo'])
+    _run_cmd(f'ip r del {TESTBED.remote.network} dev lo')
+    _run_cmd(f'ip r del {TESTBED.reverse.network} dev lo')
+
+def remove_shared_bridge():
+    _run_cmd(f'ip l del dev {BR_NAME}')
 
 def init_ssh_config():
+    global SSH_KEY
+    global SSH_CONFIG
+
     id_rsa = Path('/root/.ssh/id_rsa')
     if not id_rsa.exists():
-        subprocess.run(['ssh-keygen', '-f', str(id_rsa), '-P', ''], check=True)
-    TESTBED['ssh_key'] = id_rsa.with_suffix('.pub').read_text(encoding='utf-8')
+        _run_cmd(['ssh-keygen', '-f', str(id_rsa), '-P', ''], check=True)
+    SSH_KEY = id_rsa.with_suffix('.pub').read_text(encoding='utf-8')
 
-    hosts = ' '.join([f'*.{TESTBED["lxdbr_domain"]}',
-                      TESTBED['lxdbr_addr'],
-                      TESTBED['remote_private_addr'],
-                      TESTBED['reverse_remote_private_addr']])
-    TESTBED['ssh_config'] = '\n'.join(['Host ' + hosts,
-                                       '  StrictHostKeyChecking no',
-                                       '  UserKnownHostsFile /dev/null',
-                                       '  ConnectTimeout 10',
-                                       '  ConnectionAttempts 18',
-                                       ''])
+    SSH_CONFIG = '\n'.join([f'Host {TESTBED.remote.ip} {TESTBED.reverse.ip} {TESTBED.shared_glob}',
+                            '  StrictHostKeyChecking no',
+                            '  UserKnownHostsFile /dev/null',
+                            '  ConnectTimeout 10',
+                            '  ConnectionAttempts 18',
+                            ''])
     config = Path('/root/.ssh/config')
     if config.exists():
         content = config.read_text(encoding='utf-8') or ''
@@ -185,46 +229,43 @@ def init_ssh_config():
             content += '\n'
     else:
         content = ''
-    content += TESTBED['ssh_config']
+    content += SSH_CONFIG
     config.write_text(content, encoding='utf-8')
 
 def remove_ssh_config():
     config = Path('/root/.ssh/config')
     content = config.read_text(encoding='utf-8')
-    config.write_text(content.replace(TESTBED['ssh_config'], ''), encoding='utf-8')
+    config.write_text(content.replace(SSH_CONFIG, ''), encoding='utf-8')
 
 def init_base_test_class():
     cls = SshuttleTest
-    cls.testbed_ssh_key = TESTBED['ssh_key']
-    cls.testbed_ssh_config = TESTBED['ssh_config']
 
     cls.release = get_distro().codename
     reverse_remote = Remote(f'reverse-remote-{cls.release}', cls.release)
-    reverse_remote.add_ssh_key(cls.testbed_ssh_key)
-    reverse_remote.add_ssh_config(cls.testbed_ssh_config)
-    reverse_remote.private_addr = TESTBED["reverse_remote_private_addr"]
-    reverse_remote.private_subnet = TESTBED["reverse_remote_private_subnet"]
-    reverse_remote.add_start_cmd(f'ip a add {reverse_remote.private_subnet} dev lo')
+    reverse_remote.add_ssh_key(SSH_KEY)
+    reverse_remote.add_ssh_config(SSH_CONFIG)
+    reverse_remote.private = TESTBED.reverse
+    reverse_remote.add_start_cmd(f'ip a add {reverse_remote.private} dev lo')
     reverse_remote.snapshot_create()
     cls.reverse_remote = reverse_remote
 
-def private_addr_to_subnet(addr):
-    return ipaddress.ip_network(f'{addr}/24', strict=False).with_prefixlen
-
-def run_cmd(cmd, **kwargs):
+def _run_cmd(cmd, **kwargs):
     if type(cmd) == str:
         cmd = cmd.split()
+    return subprocess.run(cmd, **kwargs)
+
+def run_cmd(cmd, **kwargs):
     kwargs.setdefault('stdout', subprocess.PIPE)
     kwargs.setdefault('stderr', subprocess.STDOUT)
     kwargs.setdefault('encoding', 'utf-8')
-    return subprocess.run(cmd, **kwargs)
+    return _run_cmd(cmd, **kwargs)
 
 
 class Remote(object):
     def __init__(self, name, release):
         self.name = name
-        self.fqdn = f'{name}.{TESTBED["lxdbr_domain"]}'
         self.release = release
+        self.shared = TESTBED.shared_next
         self._start_cmds = []
 
         cmd = f'lxc delete --force {self.name}'
@@ -238,6 +279,15 @@ class Remote(object):
         if result.returncode != 0:
             raise Exception(f'Could not launch {self.name}: {result.stdout}')
 
+        cmd = f'lxc config device add {self.name} {IF_NAME} nic name={IF_NAME} nictype=bridged parent={BR_NAME}'
+        self.log(cmd)
+        result = run_cmd(cmd)
+        if result.returncode != 0:
+            raise Exception(f'Could not add {IF_NAME}: {result.stdout}')
+
+        self.add_start_cmd(f'ip l set up dev {IF_NAME}')
+        self.add_start_cmd(f'ip a add {self.shared} dev {IF_NAME}')
+
         self._wait_for_networking()
         self._create_ssh_key()
         self._add_local_ppas()
@@ -249,6 +299,18 @@ class Remote(object):
 
     def log(self, msg):
         print(f'{self.name}: {msg}')
+
+    def save_journal(self, testname, remotename):
+        artifacts_dir = os.getenv('AUTOPKGTEST_ARTIFACTS')
+        if not artifacts_dir:
+            self.log('AUTOPKGTEST_ARTIFACTS unset, not saving container journal')
+            return
+
+        dst = Path(artifacts_dir) / testname / remotename
+        dst.mkdir(parents=True, exist_ok=True)
+
+        self.lxc_exec('journalctl --sync --flush')
+        self.lxc_file_pull('/var/log/journal', dst, recursive=True)
 
     def _wait_for_networking(self):
         self.log(f'Waiting for {self.name} to finish starting')
@@ -370,15 +432,20 @@ class Remote(object):
             cmd = cmd.split()
         return run_cmd(['lxc', 'exec', self.name, '--env', 'DEBIAN_FRONTEND=noninteractive', '--', 'apt'] + cmd, **kwargs)
 
-    def lxc_file_pull(self, remote, local, fail_if_missing=False):
+    def lxc_file_pull(self, remote, local, fail_if_missing=False, recursive=False):
         remote = f'{self.name}{remote}'
         self.log(f'{local} <- {remote}')
+        cmd = ['lxc', 'file', 'pull', remote, local]
+        if recursive:
+            cmd += ['--recursive', '--create-dirs']
         try:
-            run_cmd(['lxc', 'file', 'pull', remote, local], check=True,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            run_cmd(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except subprocess.CalledProcessError:
             if fail_if_missing:
                 raise
+            if recursive:
+                self.log('remote dir missing, ignoring')
+                return
             localpath = Path(local)
             if localpath.is_dir():
                 localpath = localpath / Path(remote).name
@@ -470,11 +537,10 @@ class SshuttleTest(unittest.TestCase):
             raise unittest.SkipTest(f'Release {cls.release} not available for {get_arch()}')
 
         remote = Remote(f'remote-{cls.release}', cls.release)
-        remote.add_ssh_key(cls.testbed_ssh_key)
-        remote.add_ssh_config(cls.testbed_ssh_config)
-        remote.private_addr = TESTBED["remote_private_addr"]
-        remote.private_subnet = TESTBED["remote_private_subnet"]
-        remote.add_start_cmd(f'ip a add {remote.private_subnet} dev lo')
+        remote.add_ssh_key(SSH_KEY)
+        remote.add_ssh_config(SSH_CONFIG)
+        remote.private = TESTBED.remote
+        remote.add_start_cmd(f'ip a add {remote.private} dev lo')
         remote.snapshot_create()
         cls.remote = remote
 
@@ -504,11 +570,18 @@ class SshuttleTest(unittest.TestCase):
     def sshuttle_version(self):
         return run_cmd('dpkg-query -f ${Version} -W sshuttle').stdout
 
+    def sshuttle_started_ok(self):
+        output = Path(self.sshuttle_log.name).read_text(encoding='utf-8')
+        # Unfortunately we have to just grep the output to see if it 'connected'
+        # and the specific output format has changed across versions
+        # Since all output so far includes 'Connected' we'll use that word
+        return 'connected' in output.lower()
+
     def sshuttle_start(self, dst, python):
         sshuttle_cmd = 'sshuttle'
         if python:
             sshuttle_cmd += f' --python {python}'
-        sshuttle_cmd += f' -r {dst.fqdn} {dst.private_subnet}'
+        sshuttle_cmd += f' -r {dst.shared.ip} {dst.private.network}'
         if dst is self.reverse_remote:
             sshuttle_cmd = f'lxc exec {self.remote.name} -- {sshuttle_cmd}'
         print(f'running: {sshuttle_cmd}')
@@ -519,7 +592,7 @@ class SshuttleTest(unittest.TestCase):
             if self.sshuttle_process.poll() is not None:
                 print('sshuttle failed :-(', flush=True)
                 break
-            if 'client: Connected.' in Path(self.sshuttle_log.name).read_text(encoding='utf-8'):
+            if self.sshuttle_started_ok():
                 print('started', flush=True)
                 break
             time.sleep(1)
@@ -549,22 +622,35 @@ class SshuttleTest(unittest.TestCase):
 
             self.fail('sshuttle subprocess refused to stop')
 
-    def ssh_to(self, remote):
-        ssh_cmd = ['ssh', '-v', remote.private_addr, '--', 'sh', '-c', '"echo connected to $(hostname)"'] 
+    def ssh_to(self, remote, expect_timeout=False):
+        ssh_cmd = 'ssh'
+        if expect_timeout:
+            # No need to wait long if we expect it to timeout
+            ssh_cmd += ' -o ConnectionAttempts=2'
+        ssh_cmd += f' -v {remote.private.ip} -- cat /proc/sys/kernel/hostname'
         if remote is self.reverse_remote:
-            ssh_cmd = ['lxc', 'exec', self.remote.name, '--'] + ssh_cmd
+            ssh_cmd = f'lxc exec {self.remote.name} -- {ssh_cmd}'
         print(f'running: {ssh_cmd}')
-        result = run_cmd(ssh_cmd)
-        self.failureException.add_log(result.stdout)
-        if result.returncode == 0:
-            print('ssh connected')
-            return True
+        result = run_cmd(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        failed = result.returncode != 0
+        if failed:
+            if result.stderr:
+                # just print the last line here
+                print(result.stderr.splitlines()[-1])
+                if failed != expect_timeout:
+                    self.failureException.add_log(result.stdout)
+                    self.failureException.add_log(result.stderr)
+        elif result.stdout:
+            print(f'Connected to: {result.stdout.strip()}')
+        msg = 'ssh'
+        if failed:
+            msg += ' failed'
+            if expect_timeout:
+                msg += ' (as expected)'
         else:
-            if result.stdout:
-                # just print the last line here; this might be an expected failure,
-                # and for unexpected failures the full output will be included in the failure detail
-                print(result.stdout.splitlines()[-1])
-            print('ssh failed')
+            msg += ' connected'
+        print(msg, flush=True)
+        return not failed
 
     def test_local_to_remote_nopy(self):
         self._test_to_remote(self, self.remote, None)
@@ -587,7 +673,7 @@ class SshuttleTest(unittest.TestCase):
     def _test_to_remote(self, src, dst, python):
         self.failureException.add_log(f'Test detail: {src.name} sshuttle {src.sshuttle_version} to {dst.name} {python if python else ""}')
         print('this ssh connection should timeout:')
-        self.assertFalse(self.ssh_to(dst))
+        self.assertFalse(self.ssh_to(dst, expect_timeout=True))
         try:
             self.sshuttle_start(dst, python)
             print('this ssh connection should not timeout:')
@@ -597,6 +683,9 @@ class SshuttleTest(unittest.TestCase):
                 self.skipTest('This is an expected failure, ignoring test failure')
             else:
                 self.failureException.add_log(Path(self.sshuttle_log.name).read_text(encoding='utf-8'))
+                testname = '.'.join(self.id().split('.')[-2:])
+                self.remote.save_journal(testname, 'remote')
+                self.reverse_remote.save_journal(testname, 'reverse_remote')
                 raise
 
 

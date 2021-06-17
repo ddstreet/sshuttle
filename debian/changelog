@@ -1,3 +1,9 @@
+sshuttle (0.78.5-1ubuntu1.2) focal; urgency=medium
+
+  * d/t/cross-release: fix flakiness and speed of test
+
+ -- Dan Streetman <ddstreet@canonical.com>  Wed, 23 Jun 2021 16:34:30 -0400
+
 sshuttle (0.78.5-1ubuntu1.1) focal; urgency=medium
 
   * d/p/lp1873368/0001-allow-Mux-flush-fill-to-work-with-python-3.5.patch,

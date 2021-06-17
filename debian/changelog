@@ -1,3 +1,9 @@
+sshuttle (0.78.3-1ubuntu1.2) bionic; urgency=medium
+
+  * d/t/cross-release: fix flakiness and speed of test
+
+ -- Dan Streetman <ddstreet@canonical.com>  Wed, 23 Jun 2021 16:34:30 -0400
+
 sshuttle (0.78.3-1ubuntu1.1) bionic; urgency=medium
 
   [ Dan Streetman ]

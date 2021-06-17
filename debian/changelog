@@ -1,3 +1,9 @@
+sshuttle (1.0.5-1ubuntu3) impish; urgency=medium
+
+  * d/t/cross-release: fix flakiness and speed of test
+
+ -- Dan Streetman <ddstreet@canonical.com>  Wed, 23 Jun 2021 16:34:30 -0400
+
 sshuttle (1.0.5-1ubuntu2) impish; urgency=medium
 
   * d/t/cross-release: reduce total test time by waiting less

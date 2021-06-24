@@ -1,8 +1,9 @@
 sshuttle (1.0.4-1ubuntu4.20.10.1) groovy; urgency=medium
 
-  * d/t/cross-release: fix flakiness and speed of test
+  * d/t/cross-release:
+    - fix flakiness and speed of test (LP: #1927757)
 
- -- Dan Streetman <ddstreet@canonical.com>  Wed, 23 Jun 2021 16:34:30 -0400
+ -- Dan Streetman <ddstreet@canonical.com>  Fri, 25 Jun 2021 13:06:54 -0400
 
 sshuttle (1.0.4-1ubuntu4) groovy; urgency=medium
 

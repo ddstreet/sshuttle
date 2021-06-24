@@ -116,10 +116,6 @@ def is_expected_failure(src, dst, python):
     if python == 'python3' and is_expected_failure_py3(src, dst):
         return True
 
-    # xenial requires 'netstat' installed in remote, LP: #1896299
-    if src.release == 'xenial' and apt_pkg.version_compare(src.sshuttle_version, '0.76-1ubuntu1') <= 0:
-        return True
-
     # otherwise, we don't expect failure
     return False
 
@@ -293,6 +289,7 @@ class Remote(object):
         self._add_local_ppas()
         self._add_proposed()
         self._apt_update_upgrade()
+        self._install_net_tools()
         self._install_sshuttle()
         self._install_python()
         self.stop(force=False)
@@ -357,6 +354,14 @@ class Remote(object):
         self.log('upgrading packages')
         self.lxc_apt('update')
         self.lxc_apt('upgrade -y')
+
+    def _install_net_tools(self):
+        self.log('installing net-tools')
+        result_install = self.lxc_apt('install -y net-tools')
+        result_which = self.lxc_exec('which netstat')
+        if result_which.returncode != 0:
+            err = result_install.stdout + result_which.stdout
+            raise Exception(f'could not install net-tools: {err}')
 
     def _install_sshuttle(self):
         self.log('installing sshuttle')

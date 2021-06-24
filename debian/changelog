@@ -1,6 +1,8 @@
 sshuttle (1.0.5-1ubuntu3) impish; urgency=medium
 
-  * d/t/cross-release: fix flakiness and speed of test
+  * d/t/cross-release:
+    - fix flakiness and speed of test
+    - install net-tools in testbed instances
 
  -- Dan Streetman <ddstreet@canonical.com>  Wed, 23 Jun 2021 16:34:30 -0400
 

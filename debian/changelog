@@ -1,8 +1,9 @@
 sshuttle (0.78.5-1ubuntu1.2) focal; urgency=medium
 
-  * d/t/cross-release: fix flakiness and speed of test
+  * d/t/cross-release:
+    - fix flakiness and speed of test (LP: #1927757)
 
- -- Dan Streetman <ddstreet@canonical.com>  Wed, 23 Jun 2021 16:34:30 -0400
+ -- Dan Streetman <ddstreet@canonical.com>  Fri, 25 Jun 2021 13:07:31 -0400
 
 sshuttle (0.78.5-1ubuntu1.1) focal; urgency=medium
 
